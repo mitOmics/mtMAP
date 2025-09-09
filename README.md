@@ -122,7 +122,9 @@ python mtmap.py examples/ --out-prefix results/mtDNA --anchor-gene COX1
 
 - `results/mtDNA_map.png` → Annotated mitochondrial genome maps.  
 - `results/mtDNA_presence.csv` → Presence/absence matrix of canonical genes.  
-- `results/mtDNA_presence.png` → Heatmap summarizing gene distribution.  
+- `results/mtDNA_presence.png` → Heatmap summarizing gene distribution.
+- `results/mtDNA_normposdist.csv` → Distance matrix (normalized positions).
+- `results/mtDNA_normposdist.png` → Distance heatmap.  
 
 ---
 

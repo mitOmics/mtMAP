@@ -10,22 +10,21 @@
     h1 { margin-bottom: 0.25rem; font-size: 1.8rem; }
     .subtitle { color:#555; margin-bottom:1rem; }
 
-    /* === LAYOUT DO FORM ROBUSTO === */
-    .row {
+    /* === LAYOUT DO FORM: empilha em 1 coluna === */
+    .form-row {
       display: grid;
-      grid-template-columns: minmax(380px,1fr) 320px 160px;
-      gap: 16px;
-      align-items: end;
+      grid-template-columns: 1fr; /* uma coluna */
+      row-gap: 12px;              /* espaçamento vertical */
+      align-items: start;
       margin-bottom: 8px;
     }
-    @media (max-width: 900px) {
-      .row { grid-template-columns: 1fr; }
-    }
+
+    /* campos */
     .field {
       display: flex;
       flex-direction: column;
-      gap: 6px; /* espaçamento vertical interno consistente */
-      min-width: 0; /* permite ellipsis funcionar */
+      gap: 6px;
+      min-width: 0;
     }
     label { font-weight: 600; display:block; }
 
@@ -38,18 +37,18 @@
       box-sizing:border-box;
       font-size: 14px;
       line-height: 20px;
-      min-height: 36px; /* altura uniforme */
+      min-height: 36px;
     }
     input[type="text"]::placeholder { color:#9ca3af; }
 
-    /* status do upload NÃO afeta o alinhamento */
+    /* status do upload NÃO afeta alinhamento */
     #fileInfo {
       color: #6b7280;
       font-size: 13px;
-      min-height: 18px;           /* reserva altura fixa */
-      white-space: nowrap;        /* não quebra linha */
-      overflow: hidden;           /* corta excesso */
-      text-overflow: ellipsis;    /* reticências */
+      min-height: 18px;        /* reserva altura fixa */
+      white-space: nowrap;     /* não quebra linha */
+      overflow: hidden;        /* corta excesso */
+      text-overflow: ellipsis; /* reticências */
     }
 
     button {
@@ -61,7 +60,8 @@
       font-weight:600;
       cursor: pointer;
       line-height: 20px;
-      min-height: 40px; /* altura uniforme com os inputs */
+      min-height: 40px;
+      width: fit-content; /* botão não ocupa 100% */
     }
     button:disabled { opacity: 0.6; cursor: not-allowed; }
 
@@ -82,20 +82,27 @@
   <p class="subtitle">Upload up to <strong>30 mitochondrial genomes</strong> in GenBank format (.gb/.gbk/.gbff) and generate the linearized genome map, the CDS/rRNA presence heatmap, and the <strong>normalized-position distance heatmap</strong>. All outputs are downloadable (PNGs, CSVs, ZIP).</p>
 
   <div class="card">
-    <div class="row">
+    <!-- apenas este bloco usa a grade de 1 coluna -->
+    <div class="form-row">
+      <!-- Linha 1: arquivos -->
       <div class="field">
         <label>Select GenBank files (max 30):</label>
         <input id="gbk" type="file" accept=".gb,.gbk,.gbff,.genbank" multiple />
         <div id="fileInfo"></div>
       </div>
+
+      <!-- Linha 2: anchor gene -->
       <div class="field">
         <label>Anchor gene (optional):</label>
         <input id="anchor" type="text" placeholder="e.g., COX1, ND1, CYTB, F (tRNA-Phe)" />
       </div>
+
+      <!-- Linha 3: botão -->
       <div class="field" style="min-width:160px">
         <button id="runBtn">Run <span id="spin" class="spinner" style="display:none"></span></button>
       </div>
     </div>
+
     <div class="muted">Tip: use the built-in self-tests below to validate parsing in your browser before uploading large files.</div>
     <div id="log" class="card" style="background:#f9fafb; font-size:13px; max-height:260px; overflow:auto"></div>
   </div>
@@ -175,7 +182,7 @@
       }
 
       if (!mtmapReady) {
-        // Updated Python module (String.raw preserva as barras)
+        // === módulo Python (mtmap.py) ===
         const pyModule = String.raw`
 import io, base64, re, hashlib, zipfile
 from pathlib import Path
@@ -252,7 +259,7 @@ def _normalize_gene_key(name: str) -> str:
     if "ATP SYNTHASE" in sp and " SUBUNIT 6" in sp: return "ATP6"
     if "ATP SYNTHASE" in sp and " SUBUNIT 8" in sp: return "ATP8"
     if "NADH DEHYDROGENASE SUBUNIT" in sp:
-        mm = re.search(r"SUBUNIT\s+(\d)"," "+sp)
+        mm = re.search(r"SUBUNIT\\s+(\\d)"," "+sp)
         if mm:
             nd = "ND" + mm.group(1)
             if " ND4L" in sp or " SUBUNIT 4L" in sp:
@@ -382,7 +389,6 @@ def _fallback_color(key: str) -> str:
     b = b + (1.0 - b) * 0.6
     return '#%02x%02x%02x' % (int(r*255), int(g*255), int(b*255))
 
-# --- plots to PNG data URLs ---
 def _save_png_b64(fig):
     buf = io.BytesIO()
     fig.savefig(buf, format='png', dpi=300, bbox_inches='tight')
@@ -506,10 +512,8 @@ def plot_normpos_distance_heatmap_bytes_and_csv(df: pd.DataFrame):
             pi = pivot.iloc[i]; pj = pivot.iloc[j]
             common = pi.notna() & pj.notna()
             dist[i, j] = np.nan if not common.any() else np.abs(pi[common].values - pj[common].values).mean()
-    # CSV
     dist_df = pd.DataFrame(dist, index=records, columns=records)
     dist_csv = dist_df.to_csv()
-    # plot
     vmin = float(np.nanmin(dist)); vmax = float(np.nanmax(dist))
     fig, ax = plt.subplots(figsize=(7, 6))
     im = ax.imshow(dist, interpolation="nearest", aspect="auto", vmin=vmin, vmax=vmax)

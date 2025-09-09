@@ -184,10 +184,10 @@ python mtmap.py /path/to/examples --out-prefix mtmap_demo --anchor-gene COX1
 
 ### Generated Outputs (this demo)
 
-- **Genome Map**: [mtmap_demo_map.png](/mnt/data/sim_mtmap/mtmap_demo_map.png) · [SVG](/mnt/data/sim_mtmap/mtmap_demo_map.svg) · [PDF](/mnt/data/sim_mtmap/mtmap_demo_map.pdf)
-- **Presence/Absence Heatmap**: [mtmap_demo_presence.png](/mnt/data/sim_mtmap/mtmap_demo_presence.png) · [SVG](/mnt/data/sim_mtmap/mtmap_demo_presence.svg) · [PDF](/mnt/data/sim_mtmap/mtmap_demo_presence.pdf)
-- **Annotation Table (CSV)**: [mtmap_demo_annotations.csv](/mnt/data/sim_mtmap/mtmap_demo_annotations.csv)
-- **Gene Presence Matrix (CSV)**: [mtmap_demo_presence.csv](/mnt/data/sim_mtmap/mtmap_demo_presence.csv)
+- **Genome Map**: [mtmap_demo_map.png](./output/mtmap_demo_map.png) · [SVG](./output/mtmap_demo_map.svg) · [PDF](./output/mtmap_demo_map.pdf)
+- **Presence/Absence Heatmap**: [mtmap_demo_presence.png](./output/mtmap_demo_presence.png) · [SVG](./output/mtmap_demo_presence.svg) · [PDF](./output/mtmap_demo_presence.pdf)
+- **Annotation Table (CSV)**: [mtmap_demo_annotations.csv](./output/mtmap_demo_annotations.csv)
+- **Gene Presence Matrix (CSV)**: [mtmap_demo_presence.csv](./output/mtmap_demo_presence.csv)
 
 > Notes
 > - The demo uses the following GenBank files:

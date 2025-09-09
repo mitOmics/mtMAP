@@ -180,8 +180,8 @@ python mtmap.py /path/to/examples --out-prefix mtmap_demo --anchor-gene COX1
 
 ---
 
+## Notes
 
-> Notes
 > - The demo uses the following GenBank files:
 >   NC_000861_Salvelinus_alpinus.gbk, NC_000890_Mustelus_manazo.gbk, NC_000893_Amblyraja_radiata.gbk, NC_001131_Lampetra_fluviatilis.gbk, NC_001606_Cyprinus_carpio.gbk, NC_001626_Petromyzon_marinus.gbk, NC_001708_Protopterus_dolloi.gbk, NC_001717_Oncorhynchus_mykiss.gbk, NC_001727_Formosania_lacustris.gbk, NC_001778_Polypterus_ornatipinnis.gbk
 > - Anchoring to `COX1` aligns the 0 bp position to the start of `COX1` (if present); records lacking the anchor remain unshifted.

@@ -160,7 +160,7 @@ python mtmap.py examples/ --out-prefix results/mtDNA --anchor-gene COX1
 
 If you use this tool in scientific work, please cite as:  
 
-> **Menegidio, F. et al. (2025)**. *Mitochondrial Map (mtmap.py): a Python tool for comparative mitochondrial genome visualization and annotation normalization*. GitHub Repository.  
+> **LaBiOmicS (2025)**. *Mitochondrial Map (mtmap.py): a Python tool for comparative mitochondrial genome visualization and annotation normalization*. GitHub Repository.  
 
 ---
 

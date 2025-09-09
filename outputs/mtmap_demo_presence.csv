@@ -1,0 +1,11 @@
+Record,Species,Accession,COX1,COX2,COX3,ND1,ND2,ND3,ND4,ND4L,ND5,ND6,CYTB,ATP6,ATP8,12S,16S
+NC_000861.1,Salvelinus_alpinus,NC_000861.1,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1
+NC_000890.1,Mustelus_manazo,NC_000890.1,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1
+NC_000893.1,Amblyraja_radiata,NC_000893.1,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1
+NC_001131.1,Lampetra_fluviatilis,NC_001131.1,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1
+NC_001606.1,Cyprinus_carpio,NC_001606.1,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1
+NC_001626.1,Petromyzon_marinus,NC_001626.1,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1
+NC_001708.1,Protopterus_dolloi,NC_001708.1,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1
+NC_001717.1,Oncorhynchus_mykiss,NC_001717.1,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1
+NC_001727.1,Formosania_lacustris,NC_001727.1,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1
+NC_001778.1,Polypterus_ornatipinnis,NC_001778.1,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1

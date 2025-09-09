@@ -1,0 +1,697 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MTMap (Pyodide) — Mitochondrial Genome Mapper</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 24px; line-height: 1.5; background:#fafafa; color:#111; }
+    h1 { margin-bottom: 0.25rem; font-size: 1.8rem; }
+    .subtitle { color:#555; margin-bottom:1rem; }
+    .row { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-end; margin-bottom: 12px; }
+    .card { background:white; border: 1px solid #e5e7eb; border-radius: 12px; padding: 20px; margin-top: 16px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+    label { font-weight: 600; display:block; margin-bottom:4px; }
+    input[type="file"], input[type="text"] { padding: 8px 10px; border:1px solid #ccc; border-radius:8px; }
+    button { padding: 10px 16px; border-radius: 10px; border: none; background: #2563eb; color: white; font-weight:600; cursor: pointer; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    .muted { color: #6b7280; font-size: 14px; }
+    .outputs { display: grid; grid-template-columns: 1fr; gap: 24px; }
+    .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px,1fr)); gap: 24px; }
+    img { width: 100%; height: auto; background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; }
+    pre { white-space: pre-wrap; word-wrap: break-word; background: #0b1020; color: #d1d5db; padding: 12px; border-radius: 8px; font-size: 13px; max-height:260px; overflow:auto; }
+    .links a { margin-right: 12px; display:inline-block; margin-bottom:6px; color:#2563eb; text-decoration:none; font-weight:500; }
+    .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid #fff; border-top-color: transparent; border-radius: 50%; animation: spin 1s linear infinite; vertical-align: -3px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #eef2ff; color: #3730a3; font-size: 12px; font-weight: 700; margin-left:6px; }
+  </style>
+</head>
+<body>
+  <h1>MTMap — Mitochondrial Genome Mapper <span class="badge">Pyodide</span></h1>
+  <p class="subtitle">Upload up to <strong>20 mitochondrial genomes</strong> in GenBank format (.gb/.gbk/.gbff) and generate a linearized genome map and CDS/rRNA presence heatmap. All outputs are downloadable (PNGs, CSVs, ZIP).</p>
+
+  <div class="card">
+    <div class="row">
+      <div>
+        <label>Select GenBank files (max 20):</label>
+        <input id="gbk" type="file" accept=".gb,.gbk,.gbff,.genbank" multiple />
+        <div id="fileInfo" class="muted" style="margin-top:6px"></div>
+      </div>
+      <div>
+        <label>Anchor gene (optional):</label>
+        <input id="anchor" type="text" placeholder="e.g., COX1, ND1, CYTB, F (tRNA‑Phe)" style="min-width: 280px;" />
+      </div>
+      <div>
+        <button id="runBtn">Run <span id="spin" class="spinner" style="display:none"></span></button>
+      </div>
+    </div>
+    <div class="muted">Troubleshooting: use the built‑in tests below to verify parsing in your browser before uploading large files.</div>
+    <div id="log" class="card" style="background:#f9fafb; font-size:13px; max-height:260px; overflow:auto"></div>
+  </div>
+
+  <div class="card">
+    <h3>Built‑in self‑tests</h3>
+    <p class="muted">These minimal GenBank fixtures exercise the JS→Pyodide byte conversion and Biopython text parsing. They do not rely on external files.</p>
+    <button id="btnTest1">Run Test A (single record)</button>
+    <button id="btnTest2">Run Test B (multi‑file)</button>
+    <button id="btnTest3">Run Test C (includes 1 invalid file — should skip)</button>
+    <button id="btnTest4">Run Test D (all invalid — should error)</button>
+    <button id="btnTest5">Run Test E (latin‑1 accents — should parse)</button>
+    <button id="btnTest6">Run Test F (valid but no CDS/rRNA/tRNA — should warn)</button>
+  </div>
+
+  <div class="card outputs">
+    <div class="links" id="links"></div>
+    <div class="grid-2">
+      <div>
+        <h3>Mitochondrial Map</h3>
+        <img id="img_map" alt="Mitochondrial map" />
+      </div>
+      <div>
+        <h3>Presence Heatmap (CDS/rRNA)</h3>
+        <img id="img_presence" alt="Presence heatmap (CDS/rRNA)" />
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const MAX_FILES = 20;
+    const log = (msg) => {
+      const div = document.getElementById('log');
+      const t = new Date().toLocaleTimeString();
+      div.innerText += `[${t}] ${msg}\n`;
+      div.scrollTop = div.scrollHeight;
+    };
+
+    function updateFileInfo() {
+      const input = document.getElementById('gbk');
+      const info = document.getElementById('fileInfo');
+      const files = Array.from(input.files || []);
+      if (!files.length) { info.textContent = ''; return; }
+      if (files.length > MAX_FILES) {
+        info.innerHTML = `<span style="color:#b91c1c;font-weight:700">Selected ${files.length} files — limit is ${MAX_FILES}. Please remove some files.</span>`;
+      } else {
+        const names = files.map(f => f.name).slice(0,5).join(', ') + (files.length>5 ? `, +${files.length-5} more` : '');
+        info.innerHTML = `Selected <strong>${files.length}</strong> file(s): ${names}`;
+      }
+    }
+    document.getElementById('gbk').addEventListener('change', (e) => {
+      if (e.target.files.length > MAX_FILES) {
+        alert(`You can upload at most ${MAX_FILES} genome files.`);
+        e.target.value = '';
+      }
+      updateFileInfo();
+    });
+
+    let pyodide;
+    let mtmapReady = false;
+
+    async function ensurePyodide() {
+      if (pyodide && mtmapReady) return pyodide;
+      if (!pyodide) {
+        log('Loading Pyodide...');
+        globalThis.loadPyodide || await import('https://cdn.jsdelivr.net/pyodide/v0.25.1/full/pyodide.js');
+        pyodide = await loadPyodide({ indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.25.1/full/' });
+        log('Loading packages (numpy, pandas, python-dateutil, six, pytz, matplotlib, cycler, fonttools, kiwisolver, packaging, Pillow, pyparsing, matplotlib-pyodide, biopython)...');
+        await pyodide.loadPackage(['numpy','pandas','matplotlib','biopython']);
+        log('Packages loaded.');
+      }
+
+      if (!mtmapReady) {
+        // IMPORTANT: Use String.raw so backslashes (e.g., "\\n") are preserved for Python
+        const pyModule = String.raw`
+import io, base64, re, hashlib
+from pathlib import Path
+import pandas as pd
+import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
+from Bio import SeqIO
+
+T_RNA_COLOR = "#fff9c4"
+TARGET_GENES = [
+    "COX1","COX2","COX3",
+    "ND1","ND2","ND3","ND4","ND4L","ND5","ND6",
+    "CYTB","ATP6","ATP8","12S","16S"
+]
+
+def _gene_color_map():
+    from matplotlib import cm
+    colors = {}
+    _cmap = cm.get_cmap('tab20')
+    def lighten(rgb, factor=0.55):
+        r, g, b = rgb[:3]
+        r = r + (1.0 - r) * 0.55
+        g = g + (1.0 - g) * 0.55
+        b = b + (1.0 - b) * 0.55
+        return '#%02x%02x%02x' % (int(r*255), int(g*255), int(b*255))
+    for i, g in enumerate(TARGET_GENES):
+        rgba = _cmap(i % 20)
+        colors[g] = lighten(rgba)
+    return colors
+
+GENE_COLORS = _gene_color_map()
+
+# --- helpers ---
+
+def trna_label_one_letter(name: str) -> str:
+    if "-" in name:
+        try:
+            return name.split("-")[1][0].upper()
+        except Exception:
+            return "t"
+    return "t"
+
+
+def _normalize_gene_key(name: str) -> str:
+    if not name:
+        return ""
+    s = name.upper().strip()
+    s = s.replace(" ", "").replace("MT-", "")
+    if "12S" in s or "RRNS" in s:
+        return "12S"
+    if "16S" in s or "RRNL" in s or "16SRRNA" in s or "16SRNA" in s:
+        return "16S"
+    s_cox = s.replace("COI", "COX1").replace("CO1", "COX1") \
+             .replace("COII", "COX2").replace("CO2", "COX2") \
+             .replace("COIII", "COX3").replace("CO3", "COX3")
+    if s_cox.startswith("COX"):
+        s = s_cox
+    if s in {"CYB","COB","CYTOCHROMEB","MTCYB","MT-CYB"}:
+        return "CYTB"
+    if s in {"ATPASE6", "ATP6"}: return "ATP6"
+    if s in {"ATPASE8", "ATP8"}: return "ATP8"
+    m = re.match(r"^(NADH?|ND)(\d)(L?)$", s)
+    if m:
+        base = "ND" + m.group(2)
+        if m.group(3) == "L": base += "L"
+        return base
+    sp = name.upper()
+    if "CYTOCHROME B" in sp: return "CYTB"
+    if "CYTOCHROME C OXIDASE" in sp:
+        if " SUBUNIT I" in sp or " SUBUNIT 1" in sp: return "COX1"
+        if " SUBUNIT II" in sp or " SUBUNIT 2" in sp: return "COX2"
+        if " SUBUNIT III" in sp or " SUBUNIT 3" in sp: return "COX3"
+    if "ATP SYNTHASE" in sp and " SUBUNIT 6" in sp: return "ATP6"
+    if "ATP SYNTHASE" in sp and " SUBUNIT 8" in sp: return "ATP8"
+    if "NADH DEHYDROGENASE SUBUNIT" in sp:
+        mm = re.search(r"SUBUNIT\s+(\d)"," "+sp)
+        if mm:
+            nd = "ND" + mm.group(1)
+            if " ND4L" in sp or " SUBUNIT 4L" in sp:
+                nd = "ND4L"
+            return nd
+    if "SMALL SUBUNIT RIBOSOMAL RNA" in sp or "12S RIBOSOMAL RNA" in sp: return "12S"
+    if "LARGE SUBUNIT RIBOSOMAL RNA" in sp or "16S RIBOSOMAL RNA" in sp: return "16S"
+    return s
+
+
+def _match_anchor(row_name: str, anchor: str) -> bool:
+    if not anchor:
+        return False
+    a = anchor.strip().upper()
+    nrow = _normalize_gene_key(row_name)
+    nanc = _normalize_gene_key(a)
+    if nrow == nanc:
+        return True
+    if len(a) == 1 and a.isalpha():
+        return trna_label_one_letter(row_name).upper() == a
+    if a.startswith('TRNA'):
+        return row_name.upper().replace(' ', '') == a
+    return False
+
+
+def realign_to_anchor(df: pd.DataFrame, anchor: str) -> pd.DataFrame:
+    if not anchor or df.empty:
+        return df
+    out = []
+    for rec_id, sub in df.groupby('Record', sort=False):
+        L = int(sub['GenomeLen'].iloc[0])
+        candidates = sub[sub['Name'].apply(lambda n: _match_anchor(n, anchor))]
+        if candidates.empty:
+            out.append(sub)
+            continue
+        offset = int(candidates['Start'].min())
+        s = sub.copy()
+        ns = (s['Start'] - offset) % L
+        ne = (s['End'] - offset) % L
+        wrap = ne <= ns
+        s.loc[:, 'Start'] = ns.astype(int)
+        s.loc[:, 'End'] = (ne + wrap * L).astype(int)
+        out.append(s)
+    return pd.concat(out, ignore_index=True)
+
+# --- JS→Python bytes conversion + detailed diagnostics ---
+
+def _js_to_bytes(obj):
+    try:
+        if hasattr(obj, 'to_py'):
+            obj = obj.to_py()
+        if isinstance(obj, (bytes, bytearray)):
+            return bytes(obj)
+        if isinstance(obj, memoryview):
+            return obj.tobytes()
+        return bytes(obj)
+    except Exception as e:
+        raise TypeError(f"Cannot convert object to bytes for GenBank decode: {type(obj)}") from e
+
+
+def extract_annotations_any_from_many(list_bytes: list, list_names: list):
+    import io, csv
+    rows = []
+    species_map = {}
+    accession_map = {}
+    warnings = []
+    diag = []
+    for gb_bytes, fname in zip(list_bytes, list_names):
+        status = 'OK'
+        records_n = 0
+        ann_n = 0
+        err_t = ''
+        err_m = ''
+        try:
+            gb_bytes = _js_to_bytes(gb_bytes)
+            try:
+                text = gb_bytes.decode('utf-8')
+            except UnicodeDecodeError:
+                text = gb_bytes.decode('latin-1')
+            bio = io.StringIO(text)
+            try:
+                records = list(SeqIO.parse(bio, 'genbank'))
+            except Exception as e:
+                status = 'ERROR'
+                err_t = type(e).__name__
+                err_m = str(e)
+                warnings.append(f"Skipped {fname}: {err_t}: {err_m}")
+                diag.append({'file': fname, 'status': status, 'records': 0, 'annotations': 0, 'error_type': err_t, 'error_message': err_m})
+                continue
+            records_n = len(records)
+            if records_n == 0:
+                status = 'SKIPPED'
+                err_t = 'NoRecords'
+                err_m = 'No GenBank records found.'
+                warnings.append(f"Skipped {fname}: no GenBank records found.")
+                diag.append({'file': fname, 'status': status, 'records': 0, 'annotations': 0, 'error_type': err_t, 'error_message': err_m})
+                continue
+            for record in records:
+                rec_id = record.id
+                rec_key = f"{Path(fname).stem}:{rec_id}"
+                L = len(record.seq)
+                species = None
+                for feat in record.features:
+                    if feat.type == 'source' and 'organism' in feat.qualifiers:
+                        species = feat.qualifiers['organism'][0]
+                        break
+                if not species:
+                    species = record.annotations.get('organism') or record.annotations.get('source') or 'Unknown_species'
+                species_map[rec_key] = species
+                accession_map[rec_key] = rec_id
+                for feat in record.features:
+                    if feat.type in ('CDS','rRNA','tRNA'):
+                        qual = feat.qualifiers
+                        name = (qual.get('gene') or qual.get('product') or ['unknown'])[0]
+                        start = int(feat.location.start)
+                        end = int(feat.location.end)
+                        rows.append({
+                            'Record': rec_key,
+                            'Type': 'CDS' if feat.type == 'CDS' else feat.type,
+                            'Name': name,
+                            'Start': start,
+                            'End': end,
+                            'GenomeLen': L
+                        })
+                        ann_n += 1
+            if ann_n == 0:
+                status = 'SKIPPED'
+                err_t = 'NoAnnotations'
+                err_m = 'No CDS/rRNA/tRNA features found.'
+                warnings.append(f"Skipped {fname}: no CDS/rRNA/tRNA annotations found.")
+            diag.append({'file': fname, 'status': status, 'records': records_n, 'annotations': ann_n, 'error_type': err_t, 'error_message': err_m})
+        except Exception as e:
+            status = 'ERROR'
+            err_t = type(e).__name__
+            err_m = str(e)
+            warnings.append(f"Skipped {fname}: {err_t}: {err_m}")
+            diag.append({'file': fname, 'status': status, 'records': records_n, 'annotations': ann_n, 'error_type': err_t, 'error_message': err_m})
+            continue
+    df = pd.DataFrame(rows)
+    if not df.empty:
+        df['Species'] = df['Record'].map(species_map)
+        df['Accession'] = df['Record'].map(accession_map)
+    import io as _io, csv as _csv
+    out = _io.StringIO()
+    writer = _csv.DictWriter(out, fieldnames=['file','status','records','annotations','error_type','error_message'])
+    writer.writeheader()
+    for row in diag:
+        writer.writerow(row)
+    diagnostics_csv = out.getvalue()
+    return df, warnings, diagnostics_csv
+
+
+def _fallback_color(key: str) -> str:
+    h = hashlib.md5(key.encode('utf-8')).hexdigest()
+    r = int(h[0:2], 16) / 255.0
+    g = int(h[2:4], 16) / 255.0
+    b = int(h[4:6], 16) / 255.0
+    r = r + (1.0 - r) * 0.6
+    g = g + (1.0 - g) * 0.6
+    b = b + (1.0 - b) * 0.6
+    return '#%02x%02x%02x' % (int(r*255), int(g*255), int(b*255))
+
+
+def plot_all_annotations_bytes(df: pd.DataFrame):
+    import matplotlib as mpl
+    mpl.rcParams['svg.fonttype'] = 'none'
+    if df.empty:
+        raise ValueError('Empty DataFrame.')
+    len_by_rec = df.groupby('Record')['GenomeLen'].max().to_dict()
+    max_len = max(len_by_rec.values()) if len_by_rec else 16000
+    ordered_records = list(dict.fromkeys(df['Record'].tolist()))
+    rec2label = {}
+    if {'Species','Accession'}.issubset(df.columns):
+        g = df.groupby('Record').agg({'Species':'first','Accession':'first'})
+        for rid, row in g.iterrows():
+            rec2label[rid] = f"{row['Species']} ({row['Accession']})"
+    else:
+        for rid in ordered_records:
+            rec2label[rid] = rid
+    W = 32
+    H = max(6, 1.2 * len(ordered_records)) if ordered_records else 6
+    fig = plt.figure(figsize=(W, H))
+    ax = plt.gca()
+    y = 0.0
+    yticks, yticklabels = [], []
+    y_step = 1.6
+    bar_h = 0.6
+    for rec_id in ordered_records:
+        sub = df[df['Record'] == rec_id].sort_values('Start')
+        L = int(sub['GenomeLen'].iloc[0]) if not sub.empty else max_len
+        ax.hlines(y, 0, L, color='gray', linewidth=0.6, zorder=0)
+        if not sub.empty:
+            for _, r in sub.iterrows():
+                name = r['Name']
+                width = r['End'] - r['Start']
+                cx = (r['Start'] + r['End']) / 2.0
+                if r['Type'] == 'tRNA':
+                    color = T_RNA_COLOR
+                    ax.barh(y, width, left=r['Start'], color=color, edgecolor='black', linewidth=1.0, height=bar_h, zorder=1)
+                    aa_label = trna_label_one_letter(name)
+                    ax.text(cx, y + 0.55, aa_label, ha='center', va='center', fontsize=5, color='black', zorder=2)
+                else:
+                    color = GENE_COLORS.get(_normalize_gene_key(name), _fallback_color(_normalize_gene_key(name)))
+                    ax.barh(y, width, left=r['Start'], color=color, edgecolor='black', linewidth=1.0, height=bar_h, zorder=1)
+                    ax.text(cx, y - 0.60, name, ha='center', va='center', fontsize=5, color='#222222', zorder=2)
+        yticks.append(y)
+        yticklabels.append(rec2label.get(rec_id, rec_id))
+        y += y_step
+    ax.set_ylim(-2.0, y - 0.1)
+    ax.set_yticks(yticks)
+    ax.set_yticklabels(yticklabels, fontsize=8)
+    ax.set_xlim(-max_len * 0.02, max_len * 1.03)
+    ax.margins(x=0.03)
+    ax.set_xlabel('Genomic position (bp)', fontsize=13)
+    ax.tick_params(axis='x', labelsize=11, pad=25)
+    ax.tick_params(axis='y', length=0)
+    plt.title('Mitochondrial Map', fontsize=16, pad=10)
+    ax.grid(color='#dddddd', axis='x', linewidth=0.6, alpha=0.8)
+    legend_patches = [Patch(facecolor=GENE_COLORS[g], edgecolor='black', label=g) for g in TARGET_GENES]
+    legend_patches.append(Patch(facecolor=T_RNA_COLOR, edgecolor='black', label='tRNA'))
+    leg = ax.legend(handles=legend_patches, title='Legend (gene)', loc='center left', bbox_to_anchor=(1.05, 0.5), frameon=True)
+    leg.get_frame().set_linewidth(1.0)
+    leg.get_frame().set_edgecolor('#444444')
+    fig = plt.gcf()
+    fig.subplots_adjust(bottom=0.35)
+    plt.tight_layout(rect=[0, 0.08, 0.83, 1])
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png', dpi=300, bbox_inches='tight')
+    plt.close(fig)
+    buf.seek(0)
+    b64 = base64.b64encode(buf.read()).decode('ascii')
+    return 'data:image/png;base64,' + b64
+
+
+def plot_presence_heatmap_bytes(df: pd.DataFrame):
+    import matplotlib as mpl, numpy as np, matplotlib.colors as mcolors
+    mpl.rcParams['svg.fonttype'] = 'none'
+    genes = [g for g in TARGET_GENES]
+    sub = df[df['Type'].isin(['CDS','rRNA'])].copy()
+    if sub.empty:
+        raise ValueError('No CDS/rRNA for presence heatmap.')
+    sub['GeneNorm'] = sub['Name'].apply(_normalize_gene_key)
+    mat = (sub.assign(val=1)
+              .pivot_table(index='Record', columns='GeneNorm', values='val', aggfunc='max', fill_value=0))
+    for g in genes:
+        if g not in mat.columns:
+            mat[g] = 0
+    mat = mat[genes]
+    ordered_records = list(dict.fromkeys(df['Record'].tolist()))
+    mat = mat.reindex(index=ordered_records)
+    if {'Species','Accession'}.issubset(df.columns):
+        meta = df.groupby('Record')[['Species','Accession']].first()
+        ylabels = [f"{meta.loc[r,'Species']} ({meta.loc[r,'Accession']})" if r in meta.index else r for r in mat.index]
+    else:
+        ylabels = list(mat.index)
+    data = mat.to_numpy()
+    H = max(4, 0.4 * len(ordered_records))
+    W = max(8, 0.6 * len(genes))
+    fig, ax = plt.subplots(figsize=(W, H))
+    cmap = mcolors.LinearSegmentedColormap.from_list('bin', ['#f0f0f0', '#6fbf73'])
+    im = ax.imshow(data, aspect='auto', interpolation='nearest', cmap=cmap, vmin=0, vmax=1)
+    ax.set_yticks(range(len(ylabels)))
+    ax.set_yticklabels(ylabels, fontsize=8)
+    ax.set_xticks(range(len(genes)))
+    ax.set_xticklabels(genes, fontsize=10, rotation=45, ha='right')
+    ax.set_title('Gene Presence (CDS/rRNA)', fontsize=14, pad=10)
+    ax.grid(False)
+    fig.tight_layout()
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png', dpi=300, bbox_inches='tight')
+    plt.close(fig)
+    buf.seek(0)
+    b64 = base64.b64encode(buf.read()).decode('ascii')
+    return 'data:image/png;base64,' + b64
+
+
+def export_tables_csv_strings(df: pd.DataFrame):
+    ann = df.sort_values(['Record','Start','End']).to_csv(index=False)
+    genes = [g for g in TARGET_GENES]
+    sub = df[df['Type'].isin(['CDS','rRNA'])].copy()
+    sub['GeneNorm'] = sub['Name'].apply(_normalize_gene_key)
+    syn = {
+        'COI':'COX1','COXI':'COX1','MT-CO1':'COX1','CO1':'COX1',
+        'COII':'COX2','MT-CO2':'COX2','CO2':'COX2',
+        'COIII':'COX3','MT-CO3':'COX3','CO3':'COX3',
+        'CYTB':'CYTB','COB':'CYTB','MT-CYB':'CYTB','CYB':'CYTB',
+        'ATPASE6':'ATP6','ATPASE8':'ATP8',
+        'RRNS':'12S','12SRRNA':'12S','12S RRNA':'12S',
+        'RRNL':'16S','16SRRNA':'16S','16S RRNA':'16S',
+    }
+    sub['GeneNorm'] = sub['GeneNorm'].replace(syn)
+    mat = (sub.assign(val=1)
+              .pivot_table(index='Record', columns='GeneNorm', values='val', aggfunc='max', fill_value=0))
+    for g in genes:
+        if g not in mat.columns:
+            mat[g] = 0
+    mat = mat[genes]
+    if {'Species','Accession'}.issubset(df.columns):
+        meta = df.groupby('Record')[['Species','Accession']].first()
+        mat = meta.join(mat, how='left')
+    presence = mat.to_csv()
+    return ann, presence
+
+
+def run_mtmap_from_many(list_bytes: list, list_names: list, anchor_gene: str | None = None):
+    df, warns, diagnostics_csv = extract_annotations_any_from_many(list_bytes, list_names)
+    if df.empty:
+        raise RuntimeError('No annotations found in the provided GenBank files.')
+    if anchor_gene:
+        df = realign_to_anchor(df, anchor_gene)
+    png_map = plot_all_annotations_bytes(df)
+    png_presence = plot_presence_heatmap_bytes(df)
+    ann_csv, presence_csv = export_tables_csv_strings(df)
+    import zipfile
+    zip_buf = io.BytesIO()
+    with zipfile.ZipFile(zip_buf, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
+        def dataurl_to_bytes(dataurl: str) -> bytes:
+            head, b64 = dataurl.split(',', 1)
+            return base64.b64decode(b64)
+        zf.writestr('mtmap_map.png', dataurl_to_bytes(png_map))
+        zf.writestr('mtmap_presence.png', dataurl_to_bytes(png_presence))
+        zf.writestr('mtmap_annotations.csv', ann_csv)
+        zf.writestr('mtmap_presence.csv', presence_csv)
+        if warns:
+            zf.writestr('warnings.txt', '\n'.join(warns))
+        zf.writestr('diagnostics.csv', diagnostics_csv)
+    zip_b64 = base64.b64encode(zip_buf.getvalue()).decode('ascii')
+    return {
+        'img_map': png_map,
+        'img_presence': png_presence,
+        'ann_csv': ann_csv,
+        'presence_csv': presence_csv,
+        'zip_all_b64': zip_b64,
+        'warnings': warns,
+        'diagnostics_csv': diagnostics_csv,
+    }
+`;
+        try {
+          // Write the module file and import it
+          pyodide.FS.writeFile('mtmap.py', pyModule, { encoding: 'utf8' });
+          await pyodide.runPythonAsync('import importlib\nimport mtmap\nimportlib.reload(mtmap)\nassert hasattr(mtmap, "run_mtmap_from_many")');
+          mtmapReady = true;
+          log('Core module loaded (mtmap.py).');
+        } catch (e) {
+          console.error(e);
+          log('Error loading core module: ' + (e?.message || e));
+          throw e;
+        }
+      }
+      return pyodide;
+    }
+
+    function mkBlobURL (data, type) { return URL.createObjectURL(new Blob([data], {type})); }
+
+    async function run() {
+      const files = Array.from(document.getElementById('gbk').files || []);
+      const anchor = document.getElementById('anchor').value.trim();
+      if (!files.length) { alert('Select one or more GenBank files (.gb/.gbk/.gbff).'); return; }
+      if (files.length > MAX_FILES) { alert(`You selected ${files.length} files. The limit is ${MAX_FILES}. Please remove some files and try again.`); return; }
+
+      const btn = document.getElementById('runBtn');
+      const spin = document.getElementById('spin');
+      btn.disabled = true; spin.style.display = '';
+      try {
+        await ensurePyodide();
+        log(`Reading ${files.length} file(s): ` + files.map(f => f.name).join(', '));
+        const nameList = files.map(f => f.name);
+        const bytesList = [];
+        for (const f of files) {
+          const buf = await f.arrayBuffer();
+          const arr = Array.from(new Uint8Array(buf)); // plain number[]
+          bytesList.push(arr);
+        }
+        pyodide.globals.set('GB_LIST', bytesList);
+        pyodide.globals.set('NAME_LIST', nameList);
+        pyodide.globals.set('ANCHOR', anchor || null);
+        log('Running processing (parse GenBank, maps, heatmap, CSVs)...');
+        const result = await pyodide.runPythonAsync(`import mtmap\nmtmap.run_mtmap_from_many(GB_LIST, NAME_LIST, ANCHOR)`);
+        const mapURL = result.get('img_map');
+        const presURL = result.get('img_presence');
+        const annCSV = result.get('ann_csv');
+        const presCSV = result.get('presence_csv');
+        const zipB64 = result.get('zip_all_b64');
+        const warns = result.get('warnings');
+        const diagCSV = result.get('diagnostics_csv');
+        document.getElementById('img_map').src = mapURL;
+        document.getElementById('img_presence').src = presURL;
+        const linksDiv = document.getElementById('links');
+        linksDiv.innerHTML = '';
+        const aImg1 = document.createElement('a'); aImg1.href = mapURL; aImg1.download = 'mtmap_map.png'; aImg1.textContent = 'Download mtmap_map.png';
+        const aImg2 = document.createElement('a'); aImg2.href = presURL; aImg2.download = 'mtmap_presence.png'; aImg2.textContent = 'Download mtmap_presence.png';
+        const a1 = document.createElement('a'); a1.href = mkBlobURL(annCSV, 'text/csv'); a1.download = 'mtmap_annotations.csv'; a1.textContent = 'Download mtmap_annotations.csv';
+        const a2 = document.createElement('a'); a2.href = mkBlobURL(presCSV, 'text/csv'); a2.download = 'mtmap_presence.csv'; a2.textContent = 'Download mtmap_presence.csv';
+        const a3 = document.createElement('a'); a3.href = mkBlobURL(diagCSV, 'text/csv'); a3.download = 'diagnostics.csv'; a3.textContent = 'Download diagnostics.csv';
+        const aZip = document.createElement('a'); aZip.href = mkBlobURL(Uint8Array.from(atob(zipB64), c => c.charCodeAt(0)), 'application/zip'); aZip.download = 'mtmap_outputs.zip'; aZip.textContent = 'Download all (.zip)';
+        linksDiv.appendChild(aImg1); linksDiv.appendChild(document.createTextNode(' '));
+        linksDiv.appendChild(aImg2); linksDiv.appendChild(document.createTextNode(' '));
+        linksDiv.appendChild(a1); linksDiv.appendChild(document.createTextNode(' '));
+        linksDiv.appendChild(a2); linksDiv.appendChild(document.createTextNode(' '));
+        linksDiv.appendChild(a3); linksDiv.appendChild(document.createTextNode(' '));
+        linksDiv.appendChild(aZip);
+        if (Array.isArray(warns) && warns.length) {
+          log(`Processed ${nameList.length - warns.length}/${nameList.length}; Skipped ${warns.length}.`);
+          for (const w of warns) log('Warning: ' + w);
+        } else {
+          log(`Processed ${nameList.length}/${nameList.length}; Skipped 0.`);
+        }
+        log('Finished successfully');
+      } catch (err) {
+        console.error(err);
+        log('Error: ' + (err?.message || err));
+        alert('Processing error. See the log.');
+      } finally {
+        btn.disabled = false; spin.style.display = 'none';
+      }
+    }
+
+    document.getElementById('runBtn').addEventListener('click', run);
+
+    // --- Self-test fixtures (GenBank minimal strings) ---
+    const GBK_A = `LOCUS       MTTEST1                 1000 bp    DNA     circular PLN 01-JAN-2000\nDEFINITION  Test mitochondrion.\nACCESSION   MTTEST1\nFEATURES             Location/Qualifiers\n     source          1..1000\n                     /organism="Test species A"\n     CDS             10..200\n                     /gene="COX1"\n     rRNA            300..500\n                     /gene="12S"\n     tRNA            520..540\n                     /gene="tRNA-Phe"\nORIGIN\n//`;
+
+    const GBK_B = `LOCUS       MTTEST2                 900 bp    DNA     circular PLN 01-JAN-2000\nDEFINITION  Test mitochondrion B.\nACCESSION   MTTEST2\nFEATURES             Location/Qualifiers\n     source          1..900\n                     /organism="Test species B"\n     CDS             50..150\n                     /gene="ND1"\n     CDS             160..240\n                     /gene="CYTB"\nORIGIN\n//`;
+
+    const GBK_INVALID = `This is not a valid GenBank file`;
+
+    const GBK_LATIN1 = `LOCUS       MTTEST3                 950 bp    DNA     circular PLN 01-JAN-2000\nDEFINITION  Mitocôndria de espécie com acentuação.\nACCESSION   MTTEST3\nFEATURES             Location/Qualifiers\n     source          1..950\n                     /organism="Espécie Ç Biótica"\n     CDS             20..220\n                     /gene="COI"\n     rRNA            300..480\n                     /gene="16S"\nORIGIN\n//`;
+
+    // Valid record but no CDS/rRNA/tRNA features
+    const GBK_NOANN = `LOCUS       MTTEST4                 800 bp    DNA     circular PLN 01-JAN-2000\nDEFINITION  Valid GenBank with only source feature.\nACCESSION   MTTEST4\nFEATURES             Location/Qualifiers\n     source          1..800\n                     /organism="Test species C"\nORIGIN\n//`;
+
+    async function runTest(files, anchor=null) {
+      await ensurePyodide();
+      const names = files.map((f,i) => f.name || `test${i}.gbk`);
+      const lists = files.map(f => Array.from(new TextEncoder().encode(f.text)));
+      pyodide.globals.set('GB_LIST', lists);
+      pyodide.globals.set('NAME_LIST', names);
+      pyodide.globals.set('ANCHOR', anchor);
+      log('Running self-test...');
+      const result = await pyodide.runPythonAsync(`import mtmap\nmtmap.run_mtmap_from_many(GB_LIST, NAME_LIST, ANCHOR)`);
+      const mapURL = result.get('img_map');
+      const presURL = result.get('img_presence');
+      const annCSV = result.get('ann_csv');
+      const presCSV = result.get('presence_csv');
+      const zipB64 = result.get('zip_all_b64');
+      const warns = result.get('warnings');
+      const diagCSV = result.get('diagnostics_csv');
+      document.getElementById('img_map').src = mapURL;
+      document.getElementById('img_presence').src = presURL;
+      const linksDiv = document.getElementById('links'); linksDiv.innerHTML = '';
+      linksDiv.appendChild(Object.assign(document.createElement('a'), {href: mapURL, download:'mtmap_map.png', textContent:'Download mtmap_map.png'}));
+      linksDiv.appendChild(document.createTextNode(' '));
+      linksDiv.appendChild(Object.assign(document.createElement('a'), {href: presURL, download:'mtmap_presence.png', textContent:'Download mtmap_presence.png'}));
+      linksDiv.appendChild(document.createTextNode(' '));
+      linksDiv.appendChild(Object.assign(document.createElement('a'), {href: mkBlobURL(annCSV, 'text/csv'), download:'mtmap_annotations.csv', textContent:'Download mtmap_annotations.csv'}));
+      linksDiv.appendChild(document.createTextNode(' '));
+      linksDiv.appendChild(Object.assign(document.createElement('a'), {href: mkBlobURL(presCSV, 'text/csv'), download:'mtmap_presence.csv', textContent:'Download mtmap_presence.csv'}));
+      linksDiv.appendChild(document.createTextNode(' '));
+      linksDiv.appendChild(Object.assign(document.createElement('a'), {href: mkBlobURL(diagCSV, 'text/csv'), download:'diagnostics.csv', textContent:'Download diagnostics.csv'}));
+      linksDiv.appendChild(document.createTextNode(' '));
+      linksDiv.appendChild(Object.assign(document.createElement('a'), {href: mkBlobURL(Uint8Array.from(atob(zipB64), c => c.charCodeAt(0)), 'application/zip'), download:'mtmap_outputs.zip', textContent:'Download all (.zip)'}));
+      if (Array.isArray(warns) && warns.length) {
+        log(`Processed ${names.length - warns.length}/${names.length}; Skipped ${warns.length}.`);
+        for (const w of warns) log('Warning: ' + w);
+      } else {
+        log(`Processed ${names.length}/${names.length}; Skipped 0.`);
+      }
+      log('Self-test finished');
+    }
+
+    document.getElementById('btnTest1').addEventListener('click', () => {
+      runTest([{name:'fixture_A.gbk', text: GBK_A}], 'COX1');
+    });
+    document.getElementById('btnTest2').addEventListener('click', () => {
+      runTest([{name:'fixture_A.gbk', text: GBK_A}, {name:'fixture_B.gbk', text: GBK_B}], 'ND1');
+    });
+    document.getElementById('btnTest3').addEventListener('click', () => {
+      runTest([
+        {name:'fixture_A.gbk', text: GBK_A},
+        {name:'invalid.gbk', text: GBK_INVALID}
+      ], 'COX1');
+    });
+    document.getElementById('btnTest4').addEventListener('click', async () => {
+      try {
+        await runTest([{name:'invalid_only.gbk', text: GBK_INVALID}], 'COX1');
+      } catch (e) {
+        log('Expected error (all invalid): ' + (e?.message || e));
+      }
+    });
+    document.getElementById('btnTest5').addEventListener('click', () => {
+      runTest([{name:'fixture_latin1.gbk', text: GBK_LATIN1}], 'COX1');
+    });
+    document.getElementById('btnTest6').addEventListener('click', () => {
+      runTest([
+        {name:'fixture_A.gbk', text: GBK_A},
+        {name:'no_annotations.gbk', text: GBK_NOANN}
+      ], 'COX1');
+    });
+  </script>
+</body>
+</html>

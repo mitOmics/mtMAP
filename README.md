@@ -74,45 +74,38 @@ README.md            # Documentation
 
 ---
 
-## Usage  
+## 🚀 Usage
 
-### Command-Line Execution  
-
+### Basic command
 ```bash
-python mtmap.py <input> [--out-prefix PREFIX] [--anchor-gene GENE]
+python mtmap.py my_genome.gbk --out-prefix results/mtmap
 ```
 
-### Parameters  
+### Multiple genomes
+```bash
+python mtmap.py genomes_directory/ --out-prefix results/comparison
+```
 
-- **`input`**  
-  Path to a single GenBank file (`.gb`, `.gbk`, `.gbff`) or a directory containing multiple files.  
-
-- **`--out-prefix PREFIX`** *(default: `mtmap_out`)*  
-  Prefix for output files.  
-
-- **`--anchor-gene GENE`** *(optional)*  
-  Defines a gene used as the anchor to linearize the genome.  
-  Examples: `COX1`, `ND1`, `CYTB`, `"F"` for `tRNA-Phe`.  
+### With anchor gene
+```bash
+python mtmap.py genomes_directory/ --out-prefix results/anchored --anchor-gene COX1
+```
 
 ---
 
-## Output  
+## 📊 Output Files
 
-After execution, the following outputs are generated:  
+Given `--out-prefix results/mtmap`, the tool will generate:
 
-1. **Genome maps**  
-   - `PREFIX_map.png`  
-   - `PREFIX_map.svg`  
-   - `PREFIX_map.pdf`  
+- **Tables**
+  - `mtmap_annotations.csv` → Full annotation table
+  - `mtmap_presence.csv` → Gene presence/absence matrix
+  - `mtmap_normposdist.csv` → Distance matrix (normalized positions)
 
-2. **Gene presence heatmaps**  
-   - `PREFIX_presence.png`  
-   - `PREFIX_presence.svg`  
-   - `PREFIX_presence.pdf`  
-
-3. **Annotation tables**  
-   - `PREFIX_annotations.csv` → Complete annotation data per record.  
-   - `PREFIX_presence.csv` → Binary gene presence/absence matrix.  
+- **Plots**
+  - `mtmap_map.(png|svg|pdf)` → Linear mitochondrial genome map
+  - `mtmap_presence.(png|svg|pdf)` → Presence/absence heatmap
+  - `mtmap_normposdist.(png|svg|pdf)` → Distance heatmap
 
 ---
 

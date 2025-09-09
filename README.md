@@ -178,6 +178,7 @@ This section reproduces a complete run of `mtmap.py` using a panel of publicly a
 python mtmap.py /path/to/examples --out-prefix mtmap_demo --anchor-gene COX1
 ```
 
+---
 
 
 > Notes

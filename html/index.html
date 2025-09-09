@@ -9,14 +9,63 @@
     body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 24px; line-height: 1.5; background:#fafafa; color:#111; }
     h1 { margin-bottom: 0.25rem; font-size: 1.8rem; }
     .subtitle { color:#555; margin-bottom:1rem; }
-    .row { display: grid; grid-template-columns: 1fr 320px auto; gap: var(--gap); align-items: end; margin-bottom: 12px; }
-    @media (max-width: 900px) { .row { grid-template-columns: 1fr; } }
-    .card { background:white; border: 1px solid #e5e7eb; border-radius: 12px; padding: 20px; margin-top: 16px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
-    label { font-weight: 600; display:block; margin-bottom:4px; }
-    input[type="file"], input[type="text"] { padding: 8px 10px; border:1px solid #ccc; border-radius:8px; width:100%; box-sizing:border-box; }
+
+    /* === LAYOUT DO FORM ROBUSTO === */
+    .row {
+      display: grid;
+      grid-template-columns: minmax(380px,1fr) 320px 160px;
+      gap: 16px;
+      align-items: end;
+      margin-bottom: 8px;
+    }
+    @media (max-width: 900px) {
+      .row { grid-template-columns: 1fr; }
+    }
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 6px; /* espaçamento vertical interno consistente */
+      min-width: 0; /* permite ellipsis funcionar */
+    }
+    label { font-weight: 600; display:block; }
+
+    input[type="file"],
+    input[type="text"] {
+      padding: 8px 10px;
+      border:1px solid #ccc;
+      border-radius:8px;
+      width:100%;
+      box-sizing:border-box;
+      font-size: 14px;
+      line-height: 20px;
+      min-height: 36px; /* altura uniforme */
+    }
     input[type="text"]::placeholder { color:#9ca3af; }
-    button { padding: 10px 16px; border-radius: 10px; border: none; background: #2563eb; color: white; font-weight:600; cursor: pointer; }
+
+    /* status do upload NÃO afeta o alinhamento */
+    #fileInfo {
+      color: #6b7280;
+      font-size: 13px;
+      min-height: 18px;           /* reserva altura fixa */
+      white-space: nowrap;        /* não quebra linha */
+      overflow: hidden;           /* corta excesso */
+      text-overflow: ellipsis;    /* reticências */
+    }
+
+    button {
+      padding: 10px 16px;
+      border-radius: 10px;
+      border: none;
+      background: #2563eb;
+      color: white;
+      font-weight:600;
+      cursor: pointer;
+      line-height: 20px;
+      min-height: 40px; /* altura uniforme com os inputs */
+    }
     button:disabled { opacity: 0.6; cursor: not-allowed; }
+
+    .card { background:white; border: 1px solid #e5e7eb; border-radius: 12px; padding: 20px; margin-top: 16px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
     .muted { color: #6b7280; font-size: 14px; }
     .outputs { display: grid; grid-template-columns: 1fr; gap: 24px; }
     .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px,1fr)); gap: 24px; }
@@ -34,16 +83,16 @@
 
   <div class="card">
     <div class="row">
-      <div>
+      <div class="field">
         <label>Select GenBank files (max 30):</label>
         <input id="gbk" type="file" accept=".gb,.gbk,.gbff,.genbank" multiple />
-        <div id="fileInfo" class="muted" style="margin-top:6px"></div>
+        <div id="fileInfo"></div>
       </div>
-      <div>
+      <div class="field">
         <label>Anchor gene (optional):</label>
         <input id="anchor" type="text" placeholder="e.g., COX1, ND1, CYTB, F (tRNA-Phe)" />
       </div>
-      <div style="min-width:160px">
+      <div class="field" style="min-width:160px">
         <button id="runBtn">Run <span id="spin" class="spinner" style="display:none"></span></button>
       </div>
     </div>
@@ -126,7 +175,7 @@
       }
 
       if (!mtmapReady) {
-        // Updated Python module (String.raw preserves backslashes)
+        // Updated Python module (String.raw preserva as barras)
         const pyModule = String.raw`
 import io, base64, re, hashlib, zipfile
 from pathlib import Path
@@ -172,7 +221,7 @@ def _normalize_gene_key(name: str) -> str:
         return ""
     s = name.upper().strip()
     s = s.replace(" ", "").replace("MT-", "")
-    # rRNAs (include RNR1/RNR2)
+    # rRNAs (inclui RNR1/RNR2)
     if "RNR1" in s: return "12S"
     if "RNR2" in s: return "16S"
     if "12S" in s or "RRNS" in s or "12S_RRNA" in s: return "12S"
@@ -193,7 +242,7 @@ def _normalize_gene_key(name: str) -> str:
         base = "ND" + m.group(2)
         if m.group(3) == "L": base += "L"
         return base
-    # Heuristic by 'product'
+    # Heurística por 'product'
     sp = name.upper()
     if "CYTOCHROME B" in sp: return "CYTB"
     if "CYTOCHROME C OXIDASE" in sp:
@@ -243,7 +292,7 @@ def realign_to_anchor(df: pd.DataFrame, anchor: str) -> pd.DataFrame:
         out.append(s)
     return pd.concat(out, ignore_index=True)
 
-# --- read many GenBank payloads from JS ---
+# --- ler muitos GenBank vindos do JS ---
 def _js_to_bytes(obj):
     try:
         if hasattr(obj, 'to_py'): obj = obj.to_py()

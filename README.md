@@ -160,7 +160,7 @@ python mtmap.py examples/ --out-prefix results/mtDNA --anchor-gene COX1
 
 If you use this tool in scientific work, please cite as:  
 
-> **LaBiOmicS (2025)**. *Mitochondrial Map (mtmap.py): a Python tool for comparative mitochondrial genome visualization and annotation normalization*. GitHub Repository.  
+> **Menegidio, F. et al. (2025)**. *Mitochondrial Map (mtmap.py): a Python tool for comparative mitochondrial genome visualization and annotation normalization*. GitHub Repository.  
 
 ---
 
@@ -168,3 +168,30 @@ If you use this tool in scientific work, please cite as:
 
 Distributed under the **MIT License**.  
 You are free to use, modify, and distribute this tool with appropriate credit.  
+
+
+---
+
+## Reproducible Simulation (Demo)
+
+This section reproduces a complete run of `mtmap.py` using a panel of publicly available vertebrate mitochondrial GenBank files (uploaded to this repository's `/examples` directory). We anchor the circular mtDNA on **COX1** for consistent linearization across species.
+
+### Command
+
+```bash
+python mtmap.py /path/to/examples --out-prefix mtmap_demo --anchor-gene COX1
+```
+
+### Generated Outputs (this demo)
+
+- **Genome Map**: [mtmap_demo_map.png](/mnt/data/sim_mtmap/mtmap_demo_map.png) · [SVG](/mnt/data/sim_mtmap/mtmap_demo_map.svg) · [PDF](/mnt/data/sim_mtmap/mtmap_demo_map.pdf)
+- **Presence/Absence Heatmap**: [mtmap_demo_presence.png](/mnt/data/sim_mtmap/mtmap_demo_presence.png) · [SVG](/mnt/data/sim_mtmap/mtmap_demo_presence.svg) · [PDF](/mnt/data/sim_mtmap/mtmap_demo_presence.pdf)
+- **Annotation Table (CSV)**: [mtmap_demo_annotations.csv](/mnt/data/sim_mtmap/mtmap_demo_annotations.csv)
+- **Gene Presence Matrix (CSV)**: [mtmap_demo_presence.csv](/mnt/data/sim_mtmap/mtmap_demo_presence.csv)
+
+> Notes
+> - The demo uses the following GenBank files:
+>   NC_000861_Salvelinus_alpinus.gbk, NC_000890_Mustelus_manazo.gbk, NC_000893_Amblyraja_radiata.gbk, NC_001131_Lampetra_fluviatilis.gbk, NC_001606_Cyprinus_carpio.gbk, NC_001626_Petromyzon_marinus.gbk, NC_001708_Protopterus_dolloi.gbk, NC_001717_Oncorhynchus_mykiss.gbk, NC_001727_Formosania_lacustris.gbk, NC_001778_Polypterus_ornatipinnis.gbk
+> - Anchoring to `COX1` aligns the 0 bp position to the start of `COX1` (if present); records lacking the anchor remain unshifted.
+> - Figures are exported in publication-ready formats (PNG 300 dpi, SVG with text preserved, and PDF).
+

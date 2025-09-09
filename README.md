@@ -1,4 +1,4 @@
-# Mitochondrial Map (`mtmap.py`)
+# MTMap — Mitochondrial Genome Mapper (`mtmap.py`)
 
 ## Overview  
 

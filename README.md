@@ -1,1 +1,170 @@
-# mitMAP
+# Mitochondrial Map (`mtmap.py`)
+
+## Overview  
+
+`mtmap.py` is a Python-based tool designed for the **systematic extraction, normalization, and visualization of mitochondrial genome annotations** from GenBank files. The pipeline integrates **data parsing, canonical gene normalization, and multi-format visualization** to support comparative mitochondrial genomics, evolutionary studies, and molecular systematics.  
+
+The tool automatically generates:  
+
+- **Linear mitochondrial genome maps**, displaying coding sequences (CDS), rRNAs, and tRNAs.  
+- **Annotation tables** (`CSV`) with standardized gene nomenclature.  
+- **Binary gene presence/absence matrices** across multiple records.  
+- **Heatmaps** representing gene presence across species.  
+- **Multi-format outputs** (`PNG`, `SVG`, `PDF`) suitable for publications or presentations.  
+
+---
+
+## Scientific Rationale  
+
+Mitochondrial genomes (mtDNA) are a cornerstone in phylogenetics, population genetics, and molecular systematics. However, annotations from GenBank are often inconsistent due to synonym usage (`COI`, `COX1`, `MT-CO1`) and variation in feature naming. This tool addresses these issues by:  
+
+1. **Normalization of gene nomenclature**: Standardizing synonyms to canonical forms (e.g., `COI` → `COX1`, `COB` → `CYTB`).  
+2. **Anchored genome linearization**: Re-aligning the circular mitochondrial genome based on a selected reference gene (e.g., `COX1`, `ND1`, `CYTB`, or a specific tRNA).  
+3. **Comparative visualization**: Producing presence/absence matrices and annotated maps for comparative mitochondrial genomics.  
+4. **Multi-format outputs**: Allowing downstream use in both automated pipelines and human-readable figures.  
+
+---
+
+## Key Features  
+
+- **Flexible Input**: Accepts single GenBank files or directories containing multiple entries.  
+- **Robust Parsing**: Extracts `CDS`, `rRNA`, and `tRNA` features, including metadata such as species and accession.  
+- **Gene Anchoring**: Linearization of circular genomes based on user-defined anchor gene.  
+- **Normalization Layer**: Maps synonyms and heuristic product descriptions to canonical keys.  
+- **Data Export**:  
+  - Complete annotations (`*_annotations.csv`)  
+  - Gene presence/absence matrix (`*_presence.csv`)  
+- **Visualization**:  
+  - Linear mitochondrial genome maps  
+  - Heatmap of presence/absence for canonical mitochondrial genes  
+
+---
+
+## Target Genes  
+
+The presence/absence matrix evaluates canonical mitochondrial genes:  
+
+```
+COX1, COX2, COX3,
+ND1, ND2, ND3, ND4, ND4L, ND5, ND6,
+CYTB, ATP6, ATP8, 12S, 16S
+```  
+
+In addition, all **tRNAs** are included and represented with one-letter amino acid codes.  
+
+---
+
+## Installation  
+
+### Requirements  
+
+- Python **≥ 3.8**  
+- Required libraries:  
+  ```bash
+  pip install biopython pandas matplotlib
+  ```
+
+### Repository Structure  
+
+```
+mtmap.py             # Main script
+examples/            # Example GenBank files (user-provided)
+README.md            # Documentation
+```
+
+---
+
+## Usage  
+
+### Command-Line Execution  
+
+```bash
+python mtmap.py <input> [--out-prefix PREFIX] [--anchor-gene GENE]
+```
+
+### Parameters  
+
+- **`input`**  
+  Path to a single GenBank file (`.gb`, `.gbk`, `.gbff`) or a directory containing multiple files.  
+
+- **`--out-prefix PREFIX`** *(default: `mtmap_out`)*  
+  Prefix for output files.  
+
+- **`--anchor-gene GENE`** *(optional)*  
+  Defines a gene used as the anchor to linearize the genome.  
+  Examples: `COX1`, `ND1`, `CYTB`, `"F"` for `tRNA-Phe`.  
+
+---
+
+## Output  
+
+After execution, the following outputs are generated:  
+
+1. **Genome maps**  
+   - `PREFIX_map.png`  
+   - `PREFIX_map.svg`  
+   - `PREFIX_map.pdf`  
+
+2. **Gene presence heatmaps**  
+   - `PREFIX_presence.png`  
+   - `PREFIX_presence.svg`  
+   - `PREFIX_presence.pdf`  
+
+3. **Annotation tables**  
+   - `PREFIX_annotations.csv` → Complete annotation data per record.  
+   - `PREFIX_presence.csv` → Binary gene presence/absence matrix.  
+
+---
+
+## Example  
+
+### Command  
+
+```bash
+python mtmap.py examples/ --out-prefix results/mtDNA --anchor-gene COX1
+```
+
+### Generated Outputs  
+
+- `results/mtDNA_map.png` → Annotated mitochondrial genome maps.  
+- `results/mtDNA_presence.csv` → Presence/absence matrix of canonical genes.  
+- `results/mtDNA_presence.png` → Heatmap summarizing gene distribution.  
+
+---
+
+## Technical Notes  
+
+- **Normalization Strategy**  
+  - Synonym resolution: e.g., `COI`, `COXI`, `MT-CO1` → `COX1`.  
+  - Heuristic recognition based on product names (`NADH dehydrogenase subunit 4L` → `ND4L`).  
+- **Visualization**  
+  - Coding genes: pastel color scheme (deterministic mapping).  
+  - rRNAs: distinct category (`12S`, `16S`).  
+  - tRNAs: pale yellow with one-letter amino acid labels.  
+- **Robustness**  
+  - Handles multi-entry GenBank files.  
+  - Fallback colors generated deterministically for unknown/non-target genes.  
+
+---
+
+## Applications  
+
+- Comparative genomics of mitochondrial gene content.  
+- Phylogenetic and evolutionary studies.  
+- Validation of mitochondrial genome assemblies.  
+- Educational visualization of mtDNA architecture.  
+
+---
+
+## Citation  
+
+If you use this tool in scientific work, please cite as:  
+
+> **LaBiOmicS (2025)**. *Mitochondrial Map (mtmap.py): a Python tool for comparative mitochondrial genome visualization and annotation normalization*. GitHub Repository.  
+
+---
+
+## License  
+
+Distributed under the **MIT License**.  
+You are free to use, modify, and distribute this tool with appropriate credit.  

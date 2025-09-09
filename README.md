@@ -69,6 +69,7 @@ In addition, all **tRNAs** are included and represented with one-letter amino ac
 ```
 mtmap.py             # Main script
 examples/            # Example GenBank files (user-provided)
+html/                # MTMap — Mitochondrial Genome Mapper (Pyodide)
 README.md            # Documentation
 ```
 

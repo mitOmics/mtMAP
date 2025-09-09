@@ -13,6 +13,19 @@ from matplotlib.patches import Patch
 from Bio import SeqIO
 import importlib.util, sys
 
+def _fallback_color(key: str) -> str:
+    """Gera uma cor pastel determinística para chaves fora de TARGET_GENES."""
+    import hashlib
+    h = hashlib.md5(key.encode("utf-8")).hexdigest()
+    r = int(h[0:2], 16) / 255.0
+    g = int(h[2:4], 16) / 255.0
+    b = int(h[4:6], 16) / 255.0
+    r = r + (1.0 - r) * 0.6
+    g = g + (1.0 - g) * 0.6
+    b = b + (1.0 - b) * 0.6
+    return '#%02x%02x%02x' % (int(r*255), int(g*255), int(b*255))
+
+
 # -----------------------------
 # Aparência
 DEFAULT_OTHER = "#7f7f7f"
@@ -69,8 +82,8 @@ def _norm_gene_name(name: str) -> str:
     n = (name or '').strip().upper().replace(' ', '')
     repl = {
         'COI':'COX1', 'COXI':'COX1', 'MT-CO1':'COX1', 'CO1':'COX1',
-        'COII':'COX2', 'MT-CO2':'COX2', 'CO2':'COX2',
-        'COIII':'COX3', 'MT-CO3':'COX3', 'CO3':'COX3',
+        'COII':'COX2', 'COXII':'COX2', 'MT-CO2':'COX2', 'CO2':'COX2',
+        'COIII':'COX3', 'COXIII':'COX3', 'MT-CO3':'COX3', 'CO3':'COX3',
         'CYTB':'CYTB', 'COB':'CYTB', 'MT-CYB':'CYTB', 'CYB':'CYTB',
         'ATPASE6':'ATP6', 'ATPASE8':'ATP8',
         'RRNS':'12S', '12SRRNA':'12S', '12S RRNA':'12S',
@@ -239,8 +252,8 @@ def export_tables(df: pd.DataFrame, out_prefix: Path):
     sub["GeneNorm"] = sub["Name"].apply(_normalize_gene_key)
     syn = {
         "COI":"COX1","COXI":"COX1","MT-CO1":"COX1","CO1":"COX1",
-        "COII":"COX2","MT-CO2":"COX2","CO2":"COX2",
-        "COIII":"COX3","MT-CO3":"COX3","CO3":"COX3",
+        "COII":"COX2","COXII":"COX2","MT-CO2":"COX2","CO2":"COX2",
+        "COIII":"COX3","COXIII":"COX3","MT-CO3":"COX3","CO3":"COX3",
         "CYTB":"CYTB","COB":"CYTB","MT-CYB":"CYTB","CYB":"CYTB",
         "ATPASE6":"ATP6","ATPASE8":"ATP8",
         "RRNS":"12S","12SRRNA":"12S","12S RRNA":"12S",
@@ -363,14 +376,15 @@ def plot_presence_heatmap(df: pd.DataFrame, out_png: Path, out_svg: Path, out_pd
 
     syn = {
         "COI":"COX1","COXI":"COX1","MT-CO1":"COX1","CO1":"COX1",
-        "COII":"COX2","MT-CO2":"COX2","CO2":"COX2",
-        "COIII":"COX3","MT-CO3":"COX3","CO3":"COX3",
+        "COII":"COX2","COXII":"COX2","MT-CO2":"COX2","CO2":"COX2",
+        "COIII":"COX3","COXIII":"COX3","MT-CO3":"COX3","CO3":"COX3",
         "CYTB":"CYTB","COB":"CYTB","MT-CYB":"CYTB","CYB":"CYTB",
         "ATPASE6":"ATP6","ATPASE8":"ATP8",
         "RRNS":"12S","12SRRNA":"12S","12S RRNA":"12S",
         "RRNL":"16S","16SRRNA":"16S","16S RRNA":"16S",
     }
     sub["GeneNorm"] = sub["Name"].apply(_normalize_gene_key)
+    sub["GeneNorm"] = sub["GeneNorm"].replace(syn)
     mat = (sub.assign(val=1)
               .pivot_table(index="Record", columns="GeneNorm", values="val", aggfunc="max", fill_value=0))
     for g in genes:
@@ -410,6 +424,82 @@ def plot_presence_heatmap(df: pd.DataFrame, out_png: Path, out_svg: Path, out_pd
 
 # -----------------------------
 # CLI
+# -----------------------------
+# Normalized-position distance heatmap
+def plot_normpos_distance_heatmap(df: pd.DataFrame, out_png: Path, out_svg: Path, out_pdf: Path, out_csv: Path):
+    """
+    Matriz de distância entre registros baseada na posição média normalizada dos genes compartilhados (CDS/rRNA).
+    Distância = média de |Δ posição| em [0,1]. Também exporta a matriz em CSV.
+    """
+    import numpy as np
+    import matplotlib.pyplot as plt
+
+    sub = df[df["Type"].isin(["CDS","rRNA"])].copy()
+    if sub.empty:
+        raise ValueError("Sem CDS/rRNA para o heatmap de distância por posição normalizada.")
+
+    sub["mid_norm"] = ((sub["Start"] + sub["End"]) / 2.0) / sub["GenomeLen"]
+
+    def _n(name: str) -> str:
+        s = (name or "").upper().replace(" ", "")
+        s = re.sub(r'^MT[-_]?','', s)
+        if s in {"COX1","COI","CO1","COXI"}: return "COX1"
+        if s in {"COX2","COII","CO2","COXII"}: return "COX2"
+        if s in {"COX3","COIII","CO3","COXIII"}: return "COX3"
+        if s in {"CYTB","COB","MTCYB","MT-CYB","CYB"}: return "CYTB"
+        if s in {"ATP6","ATPASE6"}: return "ATP6"
+        if s in {"ATP8","ATPASE8"}: return "ATP8"
+        m = re.fullmatch(r"(?:NADH?|ND)(\d)(L?)", s)
+        if m:
+            return "ND" + m.group(1) + ("L" if m.group(2) == "L" else "")
+        if "12S" in s or "RRNS" in s: return "12S"
+        if "16S" in s or "RRNL" in s: return "16S"
+        return s
+
+    sub["GeneNorm"] = sub["Name"].map(_n)
+    sub = sub.sort_values(["Record","GeneNorm","Start"]).drop_duplicates(["Record","GeneNorm"], keep="first")
+    pivot = sub.pivot(index="Record", columns="GeneNorm", values="mid_norm")
+
+    records = list(pivot.index)
+    n = len(records)
+    import numpy as np
+    dist = np.zeros((n, n), dtype=float)
+
+    for i in range(n):
+        for j in range(n):
+            pi = pivot.iloc[i]
+            pj = pivot.iloc[j]
+            common = pi.notna() & pj.notna()
+            if not common.any():
+                dist[i, j] = np.nan
+            else:
+                dist[i, j] = np.abs(pi[common].values - pj[common].values).mean()
+
+    # export CSV
+    dist_df = pd.DataFrame(dist, index=records, columns=records)
+    dist_df.to_csv(out_csv)
+
+    # plot
+    vmin = np.nanmin(dist)
+    vmax = np.nanmax(dist)
+    fig, ax = plt.subplots(figsize=(7, 6))
+    im = ax.imshow(dist, interpolation="nearest", aspect="auto", vmin=vmin, vmax=vmax)
+    ax.set_xticks(range(n))
+    ax.set_yticks(range(n))
+    ax.set_xticklabels(records, rotation=45, ha="right")
+    ax.set_yticklabels(records)
+    ax.set_xlabel("Record")
+    ax.set_ylabel("Record")
+    ax.set_title("Normalized-position distance heatmap")
+    cbar = plt.colorbar(im, ax=ax)
+    cbar.set_label("Mean |Δ position|")
+
+    fig.tight_layout()
+    fig.savefig(out_png, dpi=300, bbox_inches="tight")
+    fig.savefig(out_svg, bbox_inches="tight")
+    fig.savefig(out_pdf, bbox_inches="tight")
+    plt.close(fig)
+
 def main():
     ap = argparse.ArgumentParser(description="Gerar mapa mitocondrial (arquivo único ou diretório com GB/GBK).")
     ap.add_argument("input", type=str, help="Arquivo .gb/.gbk (multi-entry) OU diretório com GB/GBK.")
@@ -438,6 +528,15 @@ def main():
                           out_prefix.with_name(out_prefix.name + "_presence.png"),
                           out_prefix.with_name(out_prefix.name + "_presence.svg"),
                           out_prefix.with_name(out_prefix.name + "_presence.pdf"))
+
+    # novo: heatmap de distância de posição normalizada
+    plot_normpos_distance_heatmap(
+        df,
+        out_prefix.with_name(out_prefix.name + "_normposdist.png"),
+        out_prefix.with_name(out_prefix.name + "_normposdist.svg"),
+        out_prefix.with_name(out_prefix.name + "_normposdist.pdf"),
+        out_prefix.with_name(out_prefix.name + "_normposdist.csv")
+    )
 
 if __name__ == "__main__":
     main()

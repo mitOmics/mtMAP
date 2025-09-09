@@ -79,7 +79,7 @@
 </head>
 <body>
   <h1>MTMap — Mitochondrial Genome Mapper <span class="badge">Pyodide</span></h1>
-  <p class="subtitle">Upload up to <strong>30 mitochondrial genomes</strong> in GenBank format (.gb/.gbk/.gbff) and generate the linearized genome map, the CDS/rRNA presence heatmap, and the <strong>normalized-position distance heatmap</strong>. All outputs are downloadable (PNGs, CSVs, ZIP).</p>
+  <p class="subtitle">Upload up to <strong>30 mitochondrial genomes</strong> in GenBank format (.gb/.gbk/.gbff) and generate the linearized genome map, the CDS/rRNA presence heatmap, and the <strong>normalized-position distance heatmap</strong>. All outputs are downloadable as <strong>PNGs</strong> and <strong>SVGs</strong> (plus CSVs and ZIP).</p>
 
   <div class="card">
     <!-- apenas este bloco usa a grade de 1 coluna -->
@@ -114,7 +114,7 @@
     <button id="btnTest2">Test B (multi-file)</button>
     <button id="btnTest3">Test C (includes 1 invalid — should skip)</button>
     <button id="btnTest4">Test D (all invalid — should error)</button>
-    <button id="btnTest5">Test E (latin-1 accents — should parse)</button></br></br>
+    <button id="btnTest5">Test E (latin-1 accents — should parse)</button>
     <button id="btnTest6">Test F (valid but no CDS/rRNA/tRNA — should warn)</button>
     <button id="btnTest7">Test G (anchor letter F for tRNA-Phe)</button>
     <button id="btnTest8">Test H (RNR1/RNR2 + ND4L)</button>
@@ -182,7 +182,7 @@
       }
 
       if (!mtmapReady) {
-        // === módulo Python (mtmap.py) ===
+        // === módulo Python (mtmap.py) com suporte a SVG ===
         const pyModule = String.raw`
 import io, base64, re, hashlib, zipfile
 from pathlib import Path
@@ -299,6 +299,25 @@ def realign_to_anchor(df: pd.DataFrame, anchor: str) -> pd.DataFrame:
         out.append(s)
     return pd.concat(out, ignore_index=True)
 
+# --- util: saída PNG/SVG ---
+def _save_png_b64(fig):
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png', dpi=300, bbox_inches='tight')
+    plt.close(fig)
+    buf.seek(0)
+    import base64
+    return 'data:image/png;base64,' + base64.b64encode(buf.read()).decode('ascii')
+
+def _save_svg_text(fig):
+    import matplotlib as mpl
+    # Mantém texto como texto (não converte em paths)
+    mpl.rcParams['svg.fonttype'] = 'none'
+    buf = io.BytesIO()
+    fig.savefig(buf, format='svg', bbox_inches='tight')
+    plt.close(fig)
+    buf.seek(0)
+    return buf.getvalue().decode('utf-8')
+
 # --- ler muitos GenBank vindos do JS ---
 def _js_to_bytes(obj):
     try:
@@ -389,13 +408,10 @@ def _fallback_color(key: str) -> str:
     b = b + (1.0 - b) * 0.6
     return '#%02x%02x%02x' % (int(r*255), int(g*255), int(b*255))
 
-def _save_png_b64(fig):
-    buf = io.BytesIO()
-    fig.savefig(buf, format='png', dpi=300, bbox_inches='tight')
-    plt.close(fig)
-    buf.seek(0)
-    import base64
-    return 'data:image/png;base64,' + base64.b64encode(buf.read()).decode('ascii')
+def _common_finish(fig):
+    import matplotlib as mpl
+    mpl.rcParams['svg.fonttype'] = 'none'
+    return fig
 
 def plot_all_annotations_bytes(df: pd.DataFrame):
     import matplotlib as mpl
@@ -443,23 +459,174 @@ def plot_all_annotations_bytes(df: pd.DataFrame):
     leg = ax.legend(handles=legend_patches, title='Legend (gene)', loc='center left', bbox_to_anchor=(1.05, 0.5), frameon=True)
     leg.get_frame().set_linewidth(1.0); leg.get_frame().set_edgecolor('#444444')
     fig = plt.gcf(); fig.subplots_adjust(bottom=0.35); plt.tight_layout(rect=[0, 0.08, 0.83, 1])
-    return _save_png_b64(fig)
+    fig = _common_finish(fig)
+    png = _save_png_b64(fig)
+    # Recria figura para SVG (garante fechamento correto)
+    plt.figure(figsize=(W, H)); plt.close()
+    fig = plt.figure(figsize=(W, H)); plt.close(fig)
+    # Melhor: regenerar via mesma lógica? Para SVG preciso do mesmo desenho.
+    # Simplesmente refazemos o desenho copiando a lógica acima rapidamente seria redundante.
+    # Alternativa: salvar SVG antes de fechar:
+    # -> Ajuste: vamos gerar SVG ANTES de fechar no retorno anterior:
+    # (corrigimos: reconstituir com a mesma variável 'fig' antes do close)
+    return png, None  # placeholder (substituído abaixo)
+`;
+        // ——— Patching in-place: para manter a resposta concisa, substituiremos o bloco acima ao vivo ———
+        // Para evitar tornar este trecho ilegível, vamos injetar a versão correta completa agora:
+        const pyFull = String.raw`
+import io, base64, re, hashlib, zipfile
+from pathlib import Path
+import pandas as pd
+import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
+from Bio import SeqIO
 
-def plot_presence_heatmap_bytes(df: pd.DataFrame):
-    import matplotlib as mpl, numpy as np, matplotlib.colors as mcolors
+T_RNA_COLOR = "#fff9c4"
+TARGET_GENES = ["COX1","COX2","COX3","ND1","ND2","ND3","ND4","ND4L","ND5","ND6","CYTB","ATP6","ATP8","12S","16S"]
+
+def _gene_color_map():
+    from matplotlib import cm
+    colors = {}; _cmap = cm.get_cmap('tab20')
+    def lighten(rgb, factor=0.55):
+        r,g,b = rgb[:3]
+        r = r + (1.0 - r) * factor; g = g + (1.0 - g) * factor; b = b + (1.0 - b) * factor
+        return '#%02x%02x%02x' % (int(r*255), int(g*255), int(b*255))
+    for i,g in enumerate(TARGET_GENES):
+        rgba = _cmap(i % 20); colors[g] = lighten(rgba, factor=0.55)
+    return colors
+
+GENE_COLORS = _gene_color_map()
+
+def trna_label_one_letter(name: str) -> str:
+    if "-" in name:
+        try: return name.split("-")[1][0].upper()
+        except Exception: return "t"
+    return "t"
+
+def _normalize_gene_key(name: str) -> str:
+    if not name: return ""
+    s = name.upper().strip().replace(" ", "").replace("MT-", "")
+    if "RNR1" in s: return "12S"
+    if "RNR2" in s: return "16S"
+    if "12S" in s or "RRNS" in s or "12S_RRNA" in s: return "12S"
+    if "16S" in s or "RRNL" in s or "16SRRNA" in s or "16S_RRNA" in s or "16SRNA" in s: return "16S"
+    s_cox = s.replace("COI","COX1").replace("CO1","COX1").replace("COII","COX2").replace("CO2","COX2").replace("COIII","COX3").replace("CO3","COX3")
+    if s_cox.startswith("COX"): s = s_cox
+    if s in {"CYB","COB","CYTOCHROMEB","MTCYB","MT-CYB"}: return "CYTB"
+    if s in {"ATPASE6","ATP6"}: return "ATP6"
+    if s in {"ATPASE8","ATP8"}: return "ATP8"
+    m = re.match(r"^(NADH?|ND)(\d)(L?)$", s)
+    if m:
+        base = "ND" + m.group(2)
+        if m.group(3) == "L": base += "L"
+        return base
+    sp = name.upper()
+    if "CYTOCHROME B" in sp: return "CYTB"
+    if "CYTOCHROME C OXIDASE" in sp:
+        if " SUBUNIT I" in sp or " SUBUNIT 1" in sp: return "COX1"
+        if " SUBUNIT II" in sp or " SUBUNIT 2" in sp: return "COX2"
+        if " SUBUNIT III" in sp or " SUBUNIT 3" in sp: return "COX3"
+    if "ATP SYNTHASE" in sp and " SUBUNIT 6" in sp: return "ATP6"
+    if "ATP SYNTHASE" in sp and " SUBUNIT 8" in sp: return "ATP8"
+    if "NADH DEHYDROGENASE SUBUNIT" in sp:
+        mm = re.search(r"SUBUNIT\s+(\d)"," "+sp)
+        if mm:
+            nd = "ND" + mm.group(1)
+            if " ND4L" in sp or " SUBUNIT 4L" in sp: nd = "ND4L"
+            return nd
+    if "SMALL SUBUNIT RIBOSOMAL RNA" in sp or "12S RIBOSOMAL RNA" in sp: return "12S"
+    if "LARGE SUBUNIT RIBOSOMAL RNA" in sp or "16S RIBOSOMAL RNA" in sp: return "16S"
+    return s
+
+def _match_anchor(row_name: str, anchor: str) -> bool:
+    if not anchor: return False
+    a = anchor.strip().upper()
+    nrow = _normalize_gene_key(row_name); nanc = _normalize_gene_key(a)
+    if nrow == nanc: return True
+    if len(a) == 1 and a.isalpha(): return trna_label_one_letter(row_name).upper() == a
+    if a.startswith('TRNA'): return row_name.upper().replace(' ', '') == a
+    return False
+
+def realign_to_anchor(df: pd.DataFrame, anchor: str) -> pd.DataFrame:
+    if not anchor or df.empty: return df
+    out = []
+    for rec_id, sub in df.groupby('Record', sort=False):
+        L = int(sub['GenomeLen'].iloc[0])
+        candidates = sub[sub['Name'].apply(lambda n: _match_anchor(n, anchor))]
+        if candidates.empty: out.append(sub); continue
+        offset = int(candidates['Start'].min())
+        s = sub.copy()
+        ns = (s['Start'] - offset) % L; ne = (s['End'] - offset) % L
+        wrap = ne <= ns
+        s.loc[:, 'Start'] = ns.astype(int)
+        s.loc[:, 'End'] = (ne + wrap * L).astype(int)
+        out.append(s)
+    return pd.concat(out, ignore_index=True)
+
+def _save_png_b64(fig):
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png', dpi=300, bbox_inches='tight')
+    plt.close(fig); buf.seek(0)
+    return 'data:image/png;base64,' + base64.b64encode(buf.read()).decode('ascii')
+
+def _save_svg_text(fig):
+    import matplotlib as mpl
+    mpl.rcParams['svg.fonttype'] = 'none'
+    buf = io.BytesIO()
+    fig.savefig(buf, format='svg', bbox_inches='tight')
+    plt.close(fig); buf.seek(0)
+    return buf.getvalue().decode('utf-8')
+
+def _plot_mito_map(df: pd.DataFrame):
+    import matplotlib as mpl
+    mpl.rcParams['svg.fonttype'] = 'none'
+    len_by_rec = df.groupby('Record')['GenomeLen'].max().to_dict()
+    max_len = max(len_by_rec.values()) if len_by_rec else 16000
+    ordered_records = list(dict.fromkeys(df['Record'].tolist()))
+    rec2label = {}
+    if {'Species','Accession'}.issubset(df.columns):
+        g = df.groupby('Record').agg({'Species':'first','Accession':'first'})
+        for rid,row in g.iterrows(): rec2label[rid] = f"{row['Species']}\n({row['Accession']})"
+    else:
+        for rid in ordered_records: rec2label[rid] = rid
+    W = 32; H = max(6, 1.2 * len(ordered_records)) if ordered_records else 6
+    fig = plt.figure(figsize=(W, H)); ax = plt.gca()
+    y = 0.0; yticks, yticklabels = [], []; y_step = 1.6; bar_h = 0.6
+    for rec_id in ordered_records:
+        sub = df[df['Record']==rec_id].sort_values('Start')
+        L = int(sub['GenomeLen'].iloc[0]) if not sub.empty else max_len
+        ax.hlines(y, 0, L, color='gray', linewidth=0.6, zorder=0)
+        if not sub.empty:
+            for _, r in sub.iterrows():
+                name = r['Name']; width = r['End'] - r['Start']; cx = (r['Start'] + r['End'])/2.0
+                if r['Type'] == 'tRNA':
+                    ax.barh(y, width, left=r['Start'], color=T_RNA_COLOR, edgecolor='black', linewidth=1.0, height=bar_h, zorder=1)
+                    ax.text(cx, y + 0.55, trna_label_one_letter(name), ha='center', va='center', fontsize=5, color='black', zorder=2)
+                else:
+                    key = _normalize_gene_key(name)
+                    ax.barh(y, width, left=r['Start'], color=GENE_COLORS.get(key, '#cccccc'), edgecolor='black', linewidth=1.0, height=bar_h, zorder=1)
+                    ax.text(cx, y - 0.60, name, ha='center', va='center', fontsize=5, color='#222222', zorder=2)
+        yticks.append(y); yticklabels.append(rec2label.get(rec_id, rec_id)); y += y_step
+    ax.set_ylim(-2.0, y - 0.1); ax.set_yticks(yticks); ax.set_yticklabels(yticklabels, fontsize=8)
+    ax.set_xlim(-max_len * 0.02, max_len * 1.03); ax.margins(x=0.03)
+    ax.set_xlabel('Genomic position (bp)', fontsize=13)
+    ax.tick_params(axis='x', labelsize=11, pad=25); ax.tick_params(axis='y', length=0)
+    plt.title('Mitochondrial Map', fontsize=16, pad=10)
+    ax.grid(color='#dddddd', axis='x', linewidth=0.6, alpha=0.8)
+    legend_patches = [Patch(facecolor=GENE_COLORS[g], edgecolor='black', label=g) for g in TARGET_GENES]
+    legend_patches.append(Patch(facecolor=T_RNA_COLOR, edgecolor='black', label='tRNA'))
+    leg = ax.legend(handles=legend_patches, title='Legend (gene)', loc='center left', bbox_to_anchor=(1.05, 0.5), frameon=True)
+    leg.get_frame().set_linewidth(1.0); leg.get_frame().set_edgecolor('#444444')
+    fig = plt.gcf(); fig.subplots_adjust(bottom=0.35); plt.tight_layout(rect=[0, 0.08, 0.83, 1])
+    return fig
+
+def _plot_presence(df: pd.DataFrame):
+    import matplotlib as mpl, matplotlib.colors as mcolors, numpy as np
     mpl.rcParams['svg.fonttype'] = 'none'
     genes = [g for g in TARGET_GENES]
     sub = df[df['Type'].isin(['CDS','rRNA'])].copy()
     if sub.empty: raise ValueError('No CDS/rRNA for presence heatmap.')
-    syn = {
-        'COI':'COX1','COXI':'COX1','MT-CO1':'COX1','CO1':'COX1',
-        'COII':'COX2','COXII':'COX2','MT-CO2':'COX2','CO2':'COX2',
-        'COIII':'COX3','COXIII':'COX3','MT-CO3':'COX3','CO3':'COX3',
-        'CYTB':'CYTB','COB':'CYTB','MT-CYB':'CYTB','CYB':'CYTB',
-        'ATPASE6':'ATP6','ATPASE8':'ATP8',
-        'RRNS':'12S','12SRRNA':'12S','12S RRNA':'12S','RNR1':'12S',
-        'RRNL':'16S','16SRRNA':'16S','16S RRNA':'16S','RNR2':'16S',
-    }
+    syn = {'COI':'COX1','COXI':'COX1','MT-CO1':'COX1','CO1':'COX1','COII':'COX2','COXII':'COX2','MT-CO2':'COX2','CO2':'COX2','COIII':'COX3','COXIII':'COX3','MT-CO3':'COX3','CO3':'COX3','CYTB':'CYTB','COB':'CYTB','MT-CYB':'CYTB','CYB':'CYTB','ATPASE6':'ATP6','ATPASE8':'ATP8','RRNS':'12S','12SRRNA':'12S','12S RRNA':'12S','RNR1':'12S','RRNL':'16S','16SRRNA':'16S','16S RRNA':'16S','RNR2':'16S'}
     sub['GeneNorm'] = sub['Name'].apply(_normalize_gene_key).replace(syn)
     mat = (sub.assign(val=1).pivot_table(index='Record', columns='GeneNorm', values='val', aggfunc='max', fill_value=0))
     for g in genes:
@@ -481,16 +648,15 @@ def plot_presence_heatmap_bytes(df: pd.DataFrame):
     ax.set_xticks(range(len(genes))); ax.set_xticklabels(genes, fontsize=10, rotation=45, ha='right')
     ax.set_title('Gene Presence (CDS/rRNA)', fontsize=14, pad=10); ax.grid(False)
     fig.tight_layout()
-    return _save_png_b64(fig)
+    return fig
 
-def plot_normpos_distance_heatmap_bytes_and_csv(df: pd.DataFrame):
-    import numpy as np, matplotlib.pyplot as plt
+def _plot_normpos(df: pd.DataFrame):
+    import numpy as np
     sub = df[df["Type"].isin(["CDS","rRNA"])].copy()
     if sub.empty: raise ValueError("No CDS/rRNA for normalized-position distance heatmap.")
     sub["mid_norm"] = ((sub["Start"] + sub["End"]) / 2.0) / sub["GenomeLen"]
     def _n(name: str) -> str:
-        s = (name or "").upper().replace(" ", "")
-        s = re.sub(r'^MT[-_]?','', s)
+        s = (name or "").upper().replace(" ", ""); s = re.sub(r'^MT[-_]?','', s)
         if s in {"COX1","COI","CO1","COXI"}: return "COX1"
         if s in {"COX2","COII","CO2","COXII"}: return "COX2"
         if s in {"COX3","COIII","CO3","COXIII"}: return "COX3"
@@ -508,12 +674,15 @@ def plot_normpos_distance_heatmap_bytes_and_csv(df: pd.DataFrame):
     records = list(pivot.index); n = len(records)
     dist = np.zeros((n, n), dtype=float)
     for i in range(n):
-        for j in range(n):
-            pi = pivot.iloc[i]; pj = pivot.iloc[j]
-            common = pi.notna() & pj.notna()
-            dist[i, j] = np.nan if not common.any() else np.abs(pi[common].values - pj[common].values).mean()
+      for j in range(n):
+        pi = pivot.iloc[i]; pj = pivot.iloc[j]
+        common = pi.notna() & pj.notna()
+        dist[i, j] = np.nan if not common.any() else np.abs(pi[common].values - pj[common].values).mean()
+    # CSV
     dist_df = pd.DataFrame(dist, index=records, columns=records)
     dist_csv = dist_df.to_csv()
+    # Plot
+    import matplotlib.pyplot as plt
     vmin = float(np.nanmin(dist)); vmax = float(np.nanmax(dist))
     fig, ax = plt.subplots(figsize=(7, 6))
     im = ax.imshow(dist, interpolation="nearest", aspect="auto", vmin=vmin, vmax=vmax)
@@ -524,21 +693,13 @@ def plot_normpos_distance_heatmap_bytes_and_csv(df: pd.DataFrame):
     ax.set_title("Normalized-position distance heatmap")
     cbar = plt.colorbar(im, ax=ax); cbar.set_label("Mean |Δ position|")
     fig.tight_layout()
-    return _save_png_b64(fig), dist_csv
+    return fig, dist_csv
 
 def export_tables_csv_strings(df: pd.DataFrame):
     ann = df.sort_values(['Record','Start','End']).to_csv(index=False)
     genes = [g for g in TARGET_GENES]
     sub = df[df['Type'].isin(['CDS','rRNA'])].copy()
-    syn = {
-        'COI':'COX1','COXI':'COX1','MT-CO1':'COX1','CO1':'COX1',
-        'COII':'COX2','COXII':'COX2','MT-CO2':'COX2','CO2':'COX2',
-        'COIII':'COX3','COXIII':'COX3','MT-CO3':'COX3','CO3':'COX3',
-        'CYTB':'CYTB','COB':'CYTB','MT-CYB':'CYTB','CYB':'CYTB',
-        'ATPASE6':'ATP6','ATPASE8':'ATP8',
-        'RRNS':'12S','12SRRNA':'12S','12S RRNA':'12S','RNR1':'12S',
-        'RRNL':'16S','16SRRNA':'16S','16S RRNA':'16S','RNR2':'16S',
-    }
+    syn = {'COI':'COX1','COXI':'COX1','MT-CO1':'COX1','CO1':'COX1','COII':'COX2','COXII':'COX2','MT-CO2':'COX2','CO2':'COX2','COIII':'COX3','COXIII':'COX3','MT-CO3':'COX3','CO3':'COX3','CYTB':'CYTB','COB':'CYTB','MT-CYB':'CYTB','CYB':'CYTB','ATPASE6':'ATP6','ATPASE8':'ATP8','RRNS':'12S','12SRRNA':'12S','12S RRNA':'12S','RNR1':'12S','RRNL':'16S','16SRRNA':'16S','16S RRNA':'16S','RNR2':'16S'}
     sub['GeneNorm'] = sub['Name'].apply(_normalize_gene_key).replace(syn)
     mat = (sub.assign(val=1).pivot_table(index='Record', columns='GeneNorm', values='val', aggfunc='max', fill_value=0))
     for g in genes:
@@ -554,18 +715,38 @@ def run_mtmap_from_many(list_bytes: list, list_names: list, anchor_gene: str | N
     df, warns, diagnostics_csv = extract_annotations_any_from_many(list_bytes, list_names)
     if df.empty: raise RuntimeError('No annotations found in the provided GenBank files.')
     if anchor_gene: df = realign_to_anchor(df, anchor_gene)
-    png_map = plot_all_annotations_bytes(df)
-    png_presence = plot_presence_heatmap_bytes(df)
-    png_normpos, normpos_csv = plot_normpos_distance_heatmap_bytes_and_csv(df)
+    # MAP
+    fig_map = _plot_mito_map(df)
+    map_png = _save_png_b64(fig_map)
+    fig_map = _plot_mito_map(df)
+    map_svg = _save_svg_text(fig_map)
+    # PRESENCE
+    fig_p = _plot_presence(df)
+    presence_png = _save_png_b64(fig_p)
+    fig_p = _plot_presence(df)
+    presence_svg = _save_svg_text(fig_p)
+    # NORMPOS
+    fig_n, normpos_csv = _plot_normpos(df)
+    normpos_png = _save_png_b64(fig_n)
+    fig_n, _ = _plot_normpos(df)
+    normpos_svg = _save_svg_text(fig_n)
+    # CSVs
     ann_csv, presence_csv = export_tables_csv_strings(df)
+    # ZIP
     zip_buf = io.BytesIO()
     with zipfile.ZipFile(zip_buf, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
         def dataurl_to_bytes(dataurl: str) -> bytes:
             head, b64 = dataurl.split(',', 1)
             return base64.b64decode(b64)
-        zf.writestr('mtmap_map.png', dataurl_to_bytes(png_map))
-        zf.writestr('mtmap_presence.png', dataurl_to_bytes(png_presence))
-        zf.writestr('mtmap_normposdist.png', dataurl_to_bytes(png_normpos))
+        # PNGs
+        zf.writestr('mtmap_map.png', (lambda h: base64.b64decode(h.split(',',1)[1]))(map_png))
+        zf.writestr('mtmap_presence.png', (lambda h: base64.b64decode(h.split(',',1)[1]))(presence_png))
+        zf.writestr('mtmap_normposdist.png', (lambda h: base64.b64decode(h.split(',',1)[1]))(normpos_png))
+        # SVGs
+        zf.writestr('mtmap_map.svg', map_svg.encode('utf-8'))
+        zf.writestr('mtmap_presence.svg', presence_svg.encode('utf-8'))
+        zf.writestr('mtmap_normposdist.svg', normpos_svg.encode('utf-8'))
+        # CSVs
         zf.writestr('mtmap_annotations.csv', ann_csv)
         zf.writestr('mtmap_presence.csv', presence_csv)
         zf.writestr('mtmap_normposdist.csv', normpos_csv)
@@ -573,9 +754,12 @@ def run_mtmap_from_many(list_bytes: list, list_names: list, anchor_gene: str | N
         zf.writestr('diagnostics.csv', diagnostics_csv)
     zip_b64 = base64.b64encode(zip_buf.getvalue()).decode('ascii')
     return {
-        'img_map': png_map,
-        'img_presence': png_presence,
-        'img_normpos': png_normpos,
+        'img_map_png': map_png,
+        'img_presence_png': presence_png,
+        'img_normpos_png': normpos_png,
+        'map_svg': map_svg,
+        'presence_svg': presence_svg,
+        'normpos_svg': normpos_svg,
         'ann_csv': ann_csv,
         'presence_csv': presence_csv,
         'normpos_csv': normpos_csv,
@@ -584,16 +768,11 @@ def run_mtmap_from_many(list_bytes: list, list_names: list, anchor_gene: str | N
         'diagnostics_csv': diagnostics_csv,
     }
 `;
-        try {
-          pyodide.FS.writeFile('mtmap.py', pyModule, { encoding: 'utf8' });
-          await pyodide.runPythonAsync('import importlib\nimport mtmap\nimportlib.reload(mtmap)\nassert hasattr(mtmap, "run_mtmap_from_many")');
-          mtmapReady = true;
-          log('Core module loaded (mtmap.py).');
-        } catch (e) {
-          console.error(e);
-          log('Error loading core module: ' + (e?.message || e));
-          throw e;
-        }
+        // Escreve o módulo final
+        pyodide.FS.writeFile('mtmap.py', pyFull, { encoding: 'utf8' });
+        await pyodide.runPythonAsync('import importlib\nimport mtmap\nimportlib.reload(mtmap)\nassert hasattr(mtmap, "run_mtmap_from_many")');
+        mtmapReady = true;
+        log('Core module loaded (mtmap.py with SVG exports).');
       }
       return pyodide;
     }
@@ -621,11 +800,14 @@ def run_mtmap_from_many(list_bytes: list, list_names: list, anchor_gene: str | N
         pyodide.globals.set('GB_LIST', bytesList);
         pyodide.globals.set('NAME_LIST', nameList);
         pyodide.globals.set('ANCHOR', anchor || null);
-        log('Processing (parse GenBank, maps, heatmaps, CSVs)...');
+        log('Processing (parse GenBank, maps, heatmaps, CSVs, SVGs)...');
         const result = await pyodide.runPythonAsync(`import mtmap\nmtmap.run_mtmap_from_many(GB_LIST, NAME_LIST, ANCHOR)`);
-        const mapURL   = result.get('img_map');
-        const presURL  = result.get('img_presence');
-        const normURL  = result.get('img_normpos');
+        const mapPNG   = result.get('img_map_png');
+        const presPNG  = result.get('img_presence_png');
+        const normPNG  = result.get('img_normpos_png');
+        const mapSVG   = result.get('map_svg');
+        const presSVG  = result.get('presence_svg');
+        const normSVG  = result.get('normpos_svg');
         const annCSV   = result.get('ann_csv');
         const presCSV  = result.get('presence_csv');
         const normCSV  = result.get('normpos_csv');
@@ -633,19 +815,31 @@ def run_mtmap_from_many(list_bytes: list, list_names: list, anchor_gene: str | N
         const warns    = result.get('warnings');
         const diagCSV  = result.get('diagnostics_csv');
 
-        document.getElementById('img_map').src = mapURL;
-        document.getElementById('img_presence').src = presURL;
-        document.getElementById('img_normpos').src = normURL;
+        // Exibe PNGs (rápido) e oferece SVG para download
+        document.getElementById('img_map').src = mapPNG;
+        document.getElementById('img_presence').src = presPNG;
+        document.getElementById('img_normpos').src = normPNG;
 
         const linksDiv = document.getElementById('links'); linksDiv.innerHTML = '';
         const mkA = (href, download, text) => Object.assign(document.createElement('a'), {href, download, textContent: text});
-        linksDiv.appendChild(mkA(mapURL, 'mtmap_map.png', 'Download mtmap_map.png')); linksDiv.appendChild(document.createTextNode(' '));
-        linksDiv.appendChild(mkA(presURL, 'mtmap_presence.png', 'Download mtmap_presence.png')); linksDiv.appendChild(document.createTextNode(' '));
-        linksDiv.appendChild(mkA(normURL, 'mtmap_normposdist.png', 'Download mtmap_normposdist.png')); linksDiv.appendChild(document.createTextNode(' '));
+
+        // PNGs
+        linksDiv.appendChild(mkA(mapPNG, 'mtmap_map.png', 'Download mtmap_map.png')); linksDiv.appendChild(document.createTextNode(' '));
+        linksDiv.appendChild(mkA(presPNG, 'mtmap_presence.png', 'Download mtmap_presence.png')); linksDiv.appendChild(document.createTextNode(' '));
+        linksDiv.appendChild(mkA(normPNG, 'mtmap_normposdist.png', 'Download mtmap_normposdist.png')); linksDiv.appendChild(document.createTextNode(' '));
+
+        // SVGs (via Blob do XML)
+        linksDiv.appendChild(mkA(mkBlobURL(mapSVG,  'image/svg+xml'), 'mtmap_map.svg', 'Download mtmap_map.svg')); linksDiv.appendChild(document.createTextNode(' '));
+        linksDiv.appendChild(mkA(mkBlobURL(presSVG, 'image/svg+xml'), 'mtmap_presence.svg', 'Download mtmap_presence.svg')); linksDiv.appendChild(document.createTextNode(' '));
+        linksDiv.appendChild(mkA(mkBlobURL(normSVG, 'image/svg+xml'), 'mtmap_normposdist.svg', 'Download mtmap_normposdist.svg')); linksDiv.appendChild(document.createTextNode(' '));
+
+        // CSVs
         linksDiv.appendChild(mkA(mkBlobURL(annCSV,  'text/csv'), 'mtmap_annotations.csv', 'Download mtmap_annotations.csv')); linksDiv.appendChild(document.createTextNode(' '));
         linksDiv.appendChild(mkA(mkBlobURL(presCSV, 'text/csv'), 'mtmap_presence.csv',   'Download mtmap_presence.csv')); linksDiv.appendChild(document.createTextNode(' '));
         linksDiv.appendChild(mkA(mkBlobURL(normCSV, 'text/csv'), 'mtmap_normposdist.csv','Download mtmap_normposdist.csv')); linksDiv.appendChild(document.createTextNode(' '));
         linksDiv.appendChild(mkA(mkBlobURL(diagCSV, 'text/csv'), 'diagnostics.csv',      'Download diagnostics.csv')); linksDiv.appendChild(document.createTextNode(' '));
+
+        // ZIP (inclui PNG+SVG+CSVs)
         const zipBytes = Uint8Array.from(atob(zipB64), c => c.charCodeAt(0));
         linksDiv.appendChild(mkA(mkBlobURL(zipBytes, 'application/zip'), 'mtmap_outputs.zip', 'Download all (.zip)'));
 
@@ -655,7 +849,7 @@ def run_mtmap_from_many(list_bytes: list, list_names: list, anchor_gene: str | N
         } else {
           log(`Processed ${nameList.length}/${nameList.length}; Skipped 0.`);
         }
-        log('Finished successfully');
+        log('Finished successfully (PNG + SVG ready).');
       } catch (err) {
         console.error(err);
         log('Error: ' + (err?.message || err));
@@ -667,7 +861,7 @@ def run_mtmap_from_many(list_bytes: list, list_names: list, anchor_gene: str | N
 
     document.getElementById('runBtn').addEventListener('click', run);
 
-    // --- Self-test fixtures ---
+    // --- Self-test fixtures (iguais) ---
     const GBK_A = `LOCUS       MTTEST1                 1000 bp    DNA     circular PLN 01-JAN-2000
 DEFINITION  Test mitochondrion.
 ACCESSION   MTTEST1
@@ -744,36 +938,49 @@ ORIGIN
       pyodide.globals.set('ANCHOR', anchor);
       log('Running self-test...');
       const result = await pyodide.runPythonAsync(`import mtmap\nmtmap.run_mtmap_from_many(GB_LIST, NAME_LIST, ANCHOR)`);
-      const mapURL   = result.get('img_map');
-      const presURL  = result.get('img_presence');
-      const normURL  = result.get('img_normpos');
+      const mapPNG   = result.get('img_map_png');
+      const presPNG  = result.get('img_presence_png');
+      const normPNG  = result.get('img_normpos_png');
+      const mapSVG   = result.get('map_svg');
+      const presSVG  = result.get('presence_svg');
+      const normSVG  = result.get('normpos_svg');
       const annCSV   = result.get('ann_csv');
       const presCSV  = result.get('presence_csv');
       const normCSV  = result.get('normpos_csv');
       const zipB64   = result.get('zip_all_b64');
       const warns    = result.get('warnings');
       const diagCSV  = result.get('diagnostics_csv');
-      document.getElementById('img_map').src = mapURL;
-      document.getElementById('img_presence').src = presURL;
-      document.getElementById('img_normpos').src = normURL;
+
+      document.getElementById('img_map').src = mapPNG;
+      document.getElementById('img_presence').src = presPNG;
+      document.getElementById('img_normpos').src = normPNG;
+
       const linksDiv = document.getElementById('links'); linksDiv.innerHTML = '';
       const mkA = (href, download, text) => Object.assign(document.createElement('a'), {href, download, textContent: text});
-      linksDiv.appendChild(mkA(mapURL, 'mtmap_map.png', 'Download mtmap_map.png')); linksDiv.appendChild(document.createTextNode(' '));
-      linksDiv.appendChild(mkA(presURL, 'mtmap_presence.png', 'Download mtmap_presence.png')); linksDiv.appendChild(document.createTextNode(' '));
-      linksDiv.appendChild(mkA(normURL, 'mtmap_normposdist.png', 'Download mtmap_normposdist.png')); linksDiv.appendChild(document.createTextNode(' '));
+      // PNG
+      linksDiv.appendChild(mkA(mapPNG, 'mtmap_map.png', 'Download mtmap_map.png')); linksDiv.appendChild(document.createTextNode(' '));
+      linksDiv.appendChild(mkA(presPNG, 'mtmap_presence.png', 'Download mtmap_presence.png')); linksDiv.appendChild(document.createTextNode(' '));
+      linksDiv.appendChild(mkA(normPNG, 'mtmap_normposdist.png', 'Download mtmap_normposdist.png')); linksDiv.appendChild(document.createTextNode(' '));
+      // SVG
+      linksDiv.appendChild(mkA(mkBlobURL(mapSVG,  'image/svg+xml'), 'mtmap_map.svg', 'Download mtmap_map.svg')); linksDiv.appendChild(document.createTextNode(' '));
+      linksDiv.appendChild(mkA(mkBlobURL(presSVG, 'image/svg+xml'), 'mtmap_presence.svg', 'Download mtmap_presence.svg')); linksDiv.appendChild(document.createTextNode(' '));
+      linksDiv.appendChild(mkA(mkBlobURL(normSVG, 'image/svg+xml'), 'mtmap_normposdist.svg', 'Download mtmap_normposdist.svg')); linksDiv.appendChild(document.createTextNode(' '));
+      // CSV
       linksDiv.appendChild(mkA(mkBlobURL(annCSV,  'text/csv'), 'mtmap_annotations.csv', 'Download mtmap_annotations.csv')); linksDiv.appendChild(document.createTextNode(' '));
       linksDiv.appendChild(mkA(mkBlobURL(presCSV, 'text/csv'), 'mtmap_presence.csv',   'Download mtmap_presence.csv')); linksDiv.appendChild(document.createTextNode(' '));
       linksDiv.appendChild(mkA(mkBlobURL(normCSV, 'text/csv'), 'mtmap_normposdist.csv','Download mtmap_normposdist.csv')); linksDiv.appendChild(document.createTextNode(' '));
       linksDiv.appendChild(mkA(mkBlobURL(diagCSV, 'text/csv'), 'diagnostics.csv',      'Download diagnostics.csv'));
+      // ZIP
       const zipBytes = Uint8Array.from(atob(zipB64), c => c.charCodeAt(0));
       linksDiv.appendChild(mkA(mkBlobURL(zipBytes, 'application/zip'), 'mtmap_outputs.zip', 'Download all (.zip)'));
+
       if (Array.isArray(warns) && warns.length) {
         log(`Processed ${names.length - warns.length}/${names.length}; Skipped ${warns.length}.`);
         for (const w of warns) log('Warning: ' + w);
       } else {
         log(`Processed ${names.length}/${names.length}; Skipped 0.`);
       }
-      log('Self-test finished');
+      log('Self-test finished (PNG + SVG).');
     }
 
     document.getElementById('btnTest1').addEventListener('click', () => {

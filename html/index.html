@@ -160,7 +160,7 @@
       }
 
       if (!mtmapReady) {
-        // ====== módulo Python completo (com PNG+SVG e reload seguro) ======
+        // ====== Python module (PNG+SVG) with updated labels & fontsize ======
         const pyFull = String.raw`
 import io, base64, re, hashlib, zipfile
 from pathlib import Path
@@ -439,22 +439,32 @@ def _plot_normpos(df: pd.DataFrame):
     sub = sub.sort_values(["Record","GeneNorm","Start"]).drop_duplicates(["Record","GeneNorm"], keep="first")
     pivot = sub.pivot(index="Record", columns="GeneNorm", values="mid_norm")
     records = list(pivot.index); n = len(records)
+
+    # Build pretty labels (Species + Accession) like in presence heatmap
+    if {'Species','Accession'}.issubset(df.columns):
+        meta = df.groupby('Record')[['Species','Accession']].first()
+        labels = [f"{meta.loc[r,'Species']} ({meta.loc[r,'Accession']})" if r in meta.index else r for r in records]
+    else:
+        labels = records
+
     dist = np.zeros((n, n), dtype=float)
     for i in range(n):
         for j in range(n):
             pi = pivot.iloc[i]; pj = pivot.iloc[j]
             common = pi.notna() & pj.notna()
             dist[i, j] = np.nan if not common.any() else np.abs(pi[common].values - pj[common].values).mean()
+
     import pandas as _pd
     dist_df = _pd.DataFrame(dist, index=records, columns=records)
     dist_csv = dist_df.to_csv()
+
     import matplotlib.pyplot as plt
     vmin = float(np.nanmin(dist)); vmax = float(np.nanmax(dist))
     fig, ax = plt.subplots(figsize=(7, 6))
     im = ax.imshow(dist, interpolation="nearest", aspect="auto", vmin=vmin, vmax=vmax)
     ax.set_xticks(range(n)); ax.set_yticks(range(n))
-    ax.set_xticklabels(records, rotation=45, ha="right")
-    ax.set_yticklabels(records)
+    ax.set_xticklabels(labels, rotation=45, ha="right", fontsize=5)
+    ax.set_yticklabels(labels, fontsize=5)
     ax.set_xlabel("Record"); ax.set_ylabel("Record")
     ax.set_title("Normalized-position distance heatmap")
     cbar = plt.colorbar(im, ax=ax); cbar.set_label("Mean |Δ position|")
@@ -530,7 +540,7 @@ def run_mtmap_from_many(list_bytes: list, list_names: list, anchor_gene: str | N
         'diagnostics_csv': diagnostics_csv,
     }
 `;
-        // grava e carrega com reload limpo
+        // write and load
         pyodide.FS.writeFile('mtmap.py', pyFull, { encoding: 'utf8' });
         await pyodide.runPythonAsync(`
 import sys, importlib
@@ -538,7 +548,6 @@ if 'mtmap' in sys.modules:
     del sys.modules['mtmap']
 import mtmap
 importlib.reload(mtmap)
-assert hasattr(mtmap, 'extract_annotations_any_from_many')
 assert hasattr(mtmap, 'run_mtmap_from_many')
 `);
         mtmapReady = true;
@@ -585,12 +594,12 @@ assert hasattr(mtmap, 'run_mtmap_from_many')
         const warns    = result.get('warnings');
         const diagCSV  = result.get('diagnostics_csv');
 
-        // mostra PNGs
+        // show PNGs
         document.getElementById('img_map').src = mapPNG;
         document.getElementById('img_presence').src = presPNG;
         document.getElementById('img_normpos').src = normPNG;
 
-        // links de download
+        // download links
         const linksDiv = document.getElementById('links'); linksDiv.innerHTML = '';
         const mkA = (href, download, text) => Object.assign(document.createElement('a'), {href, download, textContent: text});
 
@@ -599,7 +608,7 @@ assert hasattr(mtmap, 'run_mtmap_from_many')
         linksDiv.appendChild(mkA(presPNG, 'mtmap_presence.png', 'Download mtmap_presence.png')); linksDiv.appendChild(document.createTextNode(' '));
         linksDiv.appendChild(mkA(normPNG, 'mtmap_normposdist.png', 'Download mtmap_normposdist.png')); linksDiv.appendChild(document.createTextNode(' '));
 
-        // SVG (via Blob a partir do XML)
+        // SVG
         linksDiv.appendChild(mkA(mkBlobURL(mapSVG,  'image/svg+xml'), 'mtmap_map.svg', 'Download mtmap_map.svg')); linksDiv.appendChild(document.createTextNode(' '));
         linksDiv.appendChild(mkA(mkBlobURL(presSVG, 'image/svg+xml'), 'mtmap_presence.svg', 'Download mtmap_presence.svg')); linksDiv.appendChild(document.createTextNode(' '));
         linksDiv.appendChild(mkA(mkBlobURL(normSVG, 'image/svg+xml'), 'mtmap_normposdist.svg', 'Download mtmap_normposdist.svg')); linksDiv.appendChild(document.createTextNode(' '));
@@ -610,7 +619,7 @@ assert hasattr(mtmap, 'run_mtmap_from_many')
         linksDiv.appendChild(mkA(mkBlobURL(normCSV, 'text/csv'), 'mtmap_normposdist.csv','Download mtmap_normposdist.csv')); linksDiv.appendChild(document.createTextNode(' '));
         linksDiv.appendChild(mkA(mkBlobURL(diagCSV, 'text/csv'), 'diagnostics.csv',      'Download diagnostics.csv')); linksDiv.appendChild(document.createTextNode(' '));
 
-        // ZIP (tudo)
+        // ZIP (all)
         const zipBytes = Uint8Array.from(atob(zipB64), c => c.charCodeAt(0));
         linksDiv.appendChild(mkA(mkBlobURL(zipBytes, 'application/zip'), 'mtmap_outputs.zip', 'Download all (.zip)'));
 

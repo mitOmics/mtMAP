@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-mtmap.py — Mitochondrial Map
+mtmap.py — Mitochondrial Map (English version)
+This file is a faithful translation of comments, docstrings, and user-facing messages.
+Functionality, function/variable names, and logic are preserved.
 """
 
 from pathlib import Path
@@ -14,7 +16,7 @@ from Bio import SeqIO
 import importlib.util, sys
 
 def _fallback_color(key: str) -> str:
-    """Gera uma cor pastel determinística para chaves fora de TARGET_GENES."""
+    """Generate a deterministic pastel color for keys outside TARGET_GENES."""
     import hashlib
     h = hashlib.md5(key.encode("utf-8")).hexdigest()
     r = int(h[0:2], 16) / 255.0
@@ -27,7 +29,7 @@ def _fallback_color(key: str) -> str:
 
 
 # -----------------------------
-# Aparência
+# Appearance
 DEFAULT_OTHER = "#7f7f7f"
 T_RNA_COLOR = "#fff9c4"
 
@@ -55,6 +57,7 @@ def _gene_color_map():
 GENE_COLORS = _gene_color_map()
 
 def trna_label_one_letter(name: str) -> str:
+    """Return a one-letter label for a tRNA feature name (e.g., 'tRNA-Phe' -> 'F')."""
     if "-" in name:
         try:
             return name.split("-")[1][0].upper()
@@ -63,22 +66,24 @@ def trna_label_one_letter(name: str) -> str:
     return "t"
 
 # -----------------------------
-# Utilidades de entrada
+# Input utilities
 GB_EXTS = {".gb", ".gbk", ".gbff", ".genbank"}
 
 def list_gb_paths(input_path: Path):
+    """Return a list of GenBank file paths from a directory or a single file path."""
     if input_path.is_dir():
         files = sorted([p for p in input_path.iterdir() if p.suffix.lower() in GB_EXTS])
         if not files:
-            raise FileNotFoundError(f"Nenhum arquivo GB/GBK encontrado em: {input_path}")
+            raise FileNotFoundError(f"No GB/GBK files found in: {input_path}")
         return files
     if input_path.is_file():
         return [input_path]
-    raise FileNotFoundError(f"Caminho não encontrado: {input_path}")
+    raise FileNotFoundError(f"Path not found: {input_path}")
 
 # -----------------------------
-# Normalização e âncora
+# Normalization and anchor
 def _norm_gene_name(name: str) -> str:
+    """Normalize common gene synonyms to canonical keys (e.g., COI -> COX1)."""
     n = (name or '').strip().upper().replace(' ', '')
     repl = {
         'COI':'COX1', 'COXI':'COX1', 'MT-CO1':'COX1', 'CO1':'COX1',
@@ -87,11 +92,12 @@ def _norm_gene_name(name: str) -> str:
         'CYTB':'CYTB', 'COB':'CYTB', 'MT-CYB':'CYTB', 'CYB':'CYTB',
         'ATPASE6':'ATP6', 'ATPASE8':'ATP8',
         'RRNS':'12S', '12SRRNA':'12S', '12S RRNA':'12S',
-        'RRNL':'16S', '16SRNA':'16S', '16S RRNA':'16S',
+        'RRNL':'16S', '16SRRNA':'16S', '16S RRNA':'16S',
     }
     return repl.get(n, n)
 
 def _match_anchor(row_name: str, anchor: str) -> bool:
+    """Return True if row_name matches the user-provided anchor gene spec."""
     if not anchor:
         return False
     a = anchor.strip().upper()
@@ -108,12 +114,12 @@ def _match_anchor(row_name: str, anchor: str) -> bool:
 
 def _normalize_gene_key(name: str) -> str:
     """
-    Normaliza nomes de genes para chaves canônicas:
-    - Case-insensitive, remove espaços e prefixo 'MT-'
-    - Sinônimos comuns: COI->COX1, COB->CYTB, etc.
-    - Converte NADx/nadx/nadhx -> NDx (ex.: NAD1 -> ND1)
-    - Normaliza rRNAs: 12S, 16S
-    - Heurísticas a partir de 'product' (ex.: 'NADH dehydrogenase subunit 1' -> ND1)
+    Normalize gene names to canonical keys:
+    - Case-insensitive, remove spaces and 'MT-' prefix
+    - Common synonyms: COI->COX1, COB->CYTB, etc.
+    - Convert NADx/nadx/nadhx -> NDx (e.g., NAD1 -> ND1)
+    - Normalize rRNAs: 12S, 16S
+    - Heuristics from 'product' (e.g., 'NADH dehydrogenase subunit 1' -> ND1)
     """
     if not name:
         return ""
@@ -144,7 +150,7 @@ def _normalize_gene_key(name: str) -> str:
     if s in {"ATPASE8", "ATP8"}:
         return "ATP8"
 
-    # NADx -> N Dx
+    # NADx -> NDx
     m = re.match(r"^(NADH?|ND)(\d)(L?)$", s)
     if m:
         base = "ND" + m.group(2)
@@ -152,7 +158,7 @@ def _normalize_gene_key(name: str) -> str:
             base += "L"
         return base
 
-    # Heurística por 'product' (quando Name vem de 'product')
+    # Heuristics based on 'product' (when Name comes from 'product')
     sp = name.upper()
     if "CYTOCHROME B" in sp:
         return "CYTB"
@@ -180,7 +186,9 @@ def _normalize_gene_key(name: str) -> str:
         return "16S"
 
     return s
+
 def realign_to_anchor(df: pd.DataFrame, anchor: str) -> pd.DataFrame:
+    """Realign features so the anchor gene starts at position 0 for each record."""
     if not anchor or df.empty:
         return df
     out = []
@@ -201,8 +209,9 @@ def realign_to_anchor(df: pd.DataFrame, anchor: str) -> pd.DataFrame:
     return pd.concat(out, ignore_index=True)
 
 # -----------------------------
-# Parsing de GenBank
+# GenBank parsing
 def extract_annotations_any(input_path: Path) -> pd.DataFrame:
+    """Parse GenBank entries (CDS, rRNA, tRNA) and build a tidy annotations table."""
     rows = []
     species_map = {}
     accession_map = {}
@@ -243,8 +252,9 @@ def extract_annotations_any(input_path: Path) -> pd.DataFrame:
 
 
 # -----------------------------
-# Exportação de tabelas
+# Table exports
 def export_tables(df: pd.DataFrame, out_prefix: Path):
+    """Export full annotations and presence/absence matrices as CSV files."""
     out_ann = out_prefix.with_name(out_prefix.name + "_annotations.csv")
     df.sort_values(["Record","Start","End"]).to_csv(out_ann, index=False)
     genes = [g for g in TARGET_GENES]
@@ -273,13 +283,14 @@ def export_tables(df: pd.DataFrame, out_prefix: Path):
     mat.to_csv(out_presence)
 
 # -----------------------------
-# Plot principal
+# Main plot
 def plot_all_annotations(df: pd.DataFrame, out_png: Path, out_svg: Path, out_pdf: Path):
+    """Draw linear mitochondrial gene maps for each record and export PNG/SVG/PDF."""
     import matplotlib as mpl
     mpl.rcParams['svg.fonttype'] = 'none'
 
     if df.empty:
-        raise ValueError("DataFrame vazio.")
+        raise ValueError("Empty DataFrame.")
 
     len_by_rec = df.groupby("Record")["GenomeLen"].max().to_dict()
     max_len = max(len_by_rec.values()) if len_by_rec else 16000
@@ -290,8 +301,7 @@ def plot_all_annotations(df: pd.DataFrame, out_png: Path, out_svg: Path, out_pdf
     if "Species" in df.columns and "Accession" in df.columns:
         g = df.groupby("Record").agg({"Species":"first","Accession":"first"})
         for rid, row in g.iterrows():
-            rec2label[rid] = f"{row['Species']}\
-({row['Accession']})"
+            rec2label[rid] = f"{row['Species']}\n({row['Accession']})"
     else:
         for rid in ordered_records:
             rec2label[rid] = rid
@@ -364,15 +374,16 @@ def plot_all_annotations(df: pd.DataFrame, out_png: Path, out_svg: Path, out_pdf
     plt.close(fig)
 
 # -----------------------------
-# Heatmap de presença
+# Presence heatmap
 def plot_presence_heatmap(df: pd.DataFrame, out_png: Path, out_svg: Path, out_pdf: Path):
+    """Draw presence/absence heatmap for canonical CDS/rRNA genes and export."""
     import matplotlib as mpl, numpy as np, matplotlib.colors as mcolors
     mpl.rcParams['svg.fonttype'] = 'none'
 
     genes = [g for g in TARGET_GENES]
     sub = df[df["Type"].isin(["CDS","rRNA"])].copy()
     if sub.empty:
-        raise ValueError("Sem CDS/rRNA para o heatmap de presença.")
+        raise ValueError("No CDS/rRNA for presence heatmap.")
 
     syn = {
         "COI":"COX1","COXI":"COX1","MT-CO1":"COX1","CO1":"COX1",
@@ -396,8 +407,7 @@ def plot_presence_heatmap(df: pd.DataFrame, out_png: Path, out_svg: Path, out_pd
 
     if {"Species","Accession"}.issubset(df.columns):
         meta = df.groupby("Record")[["Species","Accession"]].first()
-        ylabels = [f"{meta.loc[r,'Species']}\
-({meta.loc[r,'Accession']})" if r in meta.index else r
+        ylabels = [f"{meta.loc[r,'Species']}\n({meta.loc[r,'Accession']})" if r in meta.index else r
                    for r in mat.index]
     else:
         ylabels = list(mat.index)
@@ -428,15 +438,15 @@ def plot_presence_heatmap(df: pd.DataFrame, out_png: Path, out_svg: Path, out_pd
 # Normalized-position distance heatmap
 def plot_normpos_distance_heatmap(df: pd.DataFrame, out_png: Path, out_svg: Path, out_pdf: Path, out_csv: Path):
     """
-    Matriz de distância entre registros baseada na posição média normalizada dos genes compartilhados (CDS/rRNA).
-    Distância = média de |Δ posição| em [0,1]. Também exporta a matriz em CSV.
+    Distance matrix between records based on the mean normalized positions of shared genes (CDS/rRNA).
+    Distance = mean |Δ position| in [0,1]. Also exports the matrix to CSV.
     """
     import numpy as np
     import matplotlib.pyplot as plt
 
     sub = df[df["Type"].isin(["CDS","rRNA"])].copy()
     if sub.empty:
-        raise ValueError("Sem CDS/rRNA para o heatmap de distância por posição normalizada.")
+        raise ValueError("No CDS/rRNA for normalized-position distance heatmap.")
 
     sub["mid_norm"] = ((sub["Start"] + sub["End"]) / 2.0) / sub["GenomeLen"]
 
@@ -501,18 +511,18 @@ def plot_normpos_distance_heatmap(df: pd.DataFrame, out_png: Path, out_svg: Path
     plt.close(fig)
 
 def main():
-    ap = argparse.ArgumentParser(description="Gerar mapa mitocondrial (arquivo único ou diretório com GB/GBK).")
-    ap.add_argument("input", type=str, help="Arquivo .gb/.gbk (multi-entry) OU diretório com GB/GBK.")
-    ap.add_argument("--out-prefix", type=str, default="mtmap_out", help="Prefixo dos arquivos de saída.")
+    ap = argparse.ArgumentParser(description="Generate mitochondrial map (single file or directory with GB/GBK).")
+    ap.add_argument("input", type=str, help="A .gb/.gbk (multi-entry) file OR a directory with GB/GBK files.")
+    ap.add_argument("--out-prefix", type=str, default="mtmap_out", help="Prefix of output files.")
     ap.add_argument("--anchor-gene", type=str, default=None,
-                    help="Gene de ancoragem para linearizar o genoma circular (ex.: COX1, ND1, CYTB, 'F' para tRNA-Phe).")
+                    help="Anchoring gene to linearize the circular genome (e.g., COX1, ND1, CYTB, 'F' for tRNA-Phe).")
 
     args = ap.parse_args()
     in_path = Path(args.input)
 
     df = extract_annotations_any(in_path)
     if df.empty:
-        raise SystemExit("Nenhuma anotação encontrada nos GB/GBK informados.")
+        raise SystemExit("No annotations found in the provided GB/GBK files.")
 
     if args.anchor_gene:
         df = realign_to_anchor(df, args.anchor_gene)
@@ -529,7 +539,7 @@ def main():
                           out_prefix.with_name(out_prefix.name + "_presence.svg"),
                           out_prefix.with_name(out_prefix.name + "_presence.pdf"))
 
-    # novo: heatmap de distância de posição normalizada
+    # new: normalized-position distance heatmap
     plot_normpos_distance_heatmap(
         df,
         out_prefix.with_name(out_prefix.name + "_normposdist.png"),
@@ -540,17 +550,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-def _fallback_color(key: str) -> str:
-    """Gera uma cor pastel determinística para chaves fora de TARGET_GENES."""
-    import hashlib
-    h = hashlib.md5(key.encode("utf-8")).hexdigest()
-    # Use 3 bytes do hash para RGB, e clareie (pastel)
-    r = int(h[0:2], 16) / 255.0
-    g = int(h[2:4], 16) / 255.0
-    b = int(h[4:6], 16) / 255.0
-    # lighten
-    r = r + (1.0 - r) * 0.6
-    g = g + (1.0 - g) * 0.6
-    b = b + (1.0 - b) * 0.6
-    return '#%02x%02x%02x' % (int(r*255), int(g*255), int(b*255))

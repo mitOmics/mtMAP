@@ -346,7 +346,7 @@ def plot_all_annotations(df: pd.DataFrame, out_png: Path, out_svg: Path, out_pdf
 
     ax.set_ylim(-2.0, y - 0.1)
     ax.set_yticks(yticks)
-    ax.set_yticklabels(yticklabels, fontsize=8)
+    ax.set_yticklabels(yticklabels, fontsize=5)
 
     ax.set_xlim(-max_len * 0.02, max_len * 1.03)
     ax.margins(x=0.03)
@@ -420,7 +420,7 @@ def plot_presence_heatmap(df: pd.DataFrame, out_png: Path, out_svg: Path, out_pd
     im = ax.imshow(data, aspect="auto", interpolation="nearest", cmap=cmap, vmin=0, vmax=1)
 
     ax.set_yticks(range(len(ylabels)))
-    ax.set_yticklabels(ylabels, fontsize=8)
+    ax.set_yticklabels(ylabels, fontsize=5)
     ax.set_xticks(range(len(genes)))
     ax.set_xticklabels(genes, fontsize=10, rotation=45, ha="right")
     ax.set_title("Gene Presence (CDS/rRNA)", fontsize=14, pad=10)
@@ -472,6 +472,13 @@ def plot_normpos_distance_heatmap(df: pd.DataFrame, out_png: Path, out_svg: Path
 
     records = list(pivot.index)
     n = len(records)
+    # Use Species (Accession) labels if available
+    if {"Species","Accession"}.issubset(df.columns):
+        meta = df.groupby("Record")[['Species','Accession']].first()
+        labels = [f"{meta.loc[r,'Species']} ({meta.loc[r,'Accession']})" if r in meta.index else r for r in records]
+    else:
+        labels = records
+    n = len(records)
     import numpy as np
     dist = np.zeros((n, n), dtype=float)
 
@@ -496,8 +503,8 @@ def plot_normpos_distance_heatmap(df: pd.DataFrame, out_png: Path, out_svg: Path
     im = ax.imshow(dist, interpolation="nearest", aspect="auto", vmin=vmin, vmax=vmax)
     ax.set_xticks(range(n))
     ax.set_yticks(range(n))
-    ax.set_xticklabels(records, rotation=45, ha="right")
-    ax.set_yticklabels(records)
+    ax.set_xticklabels(labels, rotation=45, ha="right", fontsize=5)
+    ax.set_yticklabels(labels, fontsize=5)
     ax.set_xlabel("Record")
     ax.set_ylabel("Record")
     ax.set_title("Normalized-position distance heatmap")

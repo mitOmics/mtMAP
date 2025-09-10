@@ -96,6 +96,7 @@
     <button id="btnTest6">Test F (valid but no CDS/rRNA/tRNA — should warn)</button>
     <button id="btnTest7">Test G (anchor letter F for tRNA-Phe)</button>
     <button id="btnTest8">Test H (RNR1/RNR2 + ND4L)</button>
+    <button id="btnTest9">Test I (tRNA-Gln→Q; tRNA-Glu→E; anchor=Q)</button>
   </div>
 
   <div class="card outputs">
@@ -160,7 +161,7 @@
       }
 
       if (!mtmapReady) {
-        // ====== Python module (PNG+SVG) with updated labels & fontsize ======
+        // ====== Python module (PNG+SVG) with updated tRNA Dayhoff labeling ======
         const pyFull = String.raw`
 import io, base64, re, hashlib, zipfile
 from pathlib import Path
@@ -187,11 +188,84 @@ def _gene_color_map():
 
 GENE_COLORS = _gene_color_map()
 
+# --- Dayhoff/IUPAC mappings para tRNAs ---
+DAYHOFF_3TO1 = {
+    "ALA":"A","ARG":"R","ASN":"N","ASP":"D","CYS":"C",
+    "GLN":"Q","GLU":"E","GLY":"G","HIS":"H","ILE":"I",
+    "LEU":"L","LYS":"K","MET":"M","PHE":"F","PRO":"P",
+    "SER":"S","THR":"T","TRP":"W","TYR":"Y","VAL":"V",
+    "SEC":"U","PYL":"O"
+}
+DAYHOFF_FULLNAME_TO3 = {
+    "ALANINE":"ALA","ARGININE":"ARG","ASPARAGINE":"ASN","ASPARTICACID":"ASP","ASPARTATE":"ASP",
+    "CYSTEINE":"CYS","GLUTAMINE":"GLN","GLUTAMICACID":"GLU","GLUTAMATE":"GLU","GLYCINE":"GLY",
+    "HISTIDINE":"HIS","ISOLEUCINE":"ILE","LEUCINE":"LEU","LYSINE":"LYS","METHIONINE":"MET",
+    "PHENYLALANINE":"PHE","PROLINE":"PRO","SERINE":"SER","THREONINE":"THR","TRYPTOPHAN":"TRP",
+    "TYROSINE":"TYR","VALINE":"VAL","SELENOCYSTEINE":"SEC","PYRROLYSINE":"PYL"
+}
+DAYHOFF_1SET = set(DAYHOFF_3TO1.values())
+
+def _extract_trna_dayhoff_letter(name: str) -> str | None:
+    """
+    Extrai a letra única Dayhoff do tRNA a partir de variantes comuns:
+    - 'tRNA-Phe', 'tRNA-Gln (CUG)', 'tRNA-Ser-AGY', 'TRNF', 'trnF-GAA'
+    - 'trnS1'/'trnS2', 'trnL1'/'trnL2'
+    - nomes por extenso ('tRNA-Phenylalanine') ou códigos de 3 letras
+    Retorna None se não for possível inferir.
+    """
+    if not name:
+        return None
+    s = name.upper().replace(" ", "").replace("TRANSFER-RNA", "TRNA").replace("MT-","")
+
+    # 1) TRNA/ TRN + 3 letras (PHE, GLN, ...)
+    m = re.match(r'^(?:TRNA|TRN)[-_]?(?P<aa3>[A-Z]{3})(?:\\b|[-_\\(])', s)
+    if m:
+        aa3 = m.group("aa3")
+        return DAYHOFF_3TO1.get(aa3)
+
+    # 2) TRNA/ TRN + 1 letra já presente
+    m = re.match(r'^(?:TRNA|TRN)[-_]?(?P<aa1>[A-Z])(?![A-Z])', s)
+    if m:
+        aa1 = m.group("aa1")
+        return aa1 if aa1 in DAYHOFF_1SET else None
+
+    # 3) Subíndice numérico (trnS1, trnL2, ...)
+    m = re.match(r'^(?:TRNA|TRN)[-_]?(?P<let>[A-Z])(?:\\d)', s)
+    if m:
+        let = m.group("let")
+        return let if let in DAYHOFF_1SET else None
+
+    # 4) tRNA- + nome por extenso (PHENYLALANINE, GLUTAMICACID, ...)
+    m = re.match(r'^TRNA[-_]?(?P<full>[A-Z]+)', s)
+    if m:
+        full = m.group("full")
+        aa3 = DAYHOFF_FULLNAME_TO3.get(full)
+        if aa3 and aa3 in DAYHOFF_3TO1:
+            return DAYHOFF_3TO1[aa3]
+
+    # 5) 'TRN' estilo 'trnF', 'trnQ-ttg'
+    m = re.match(r'^TRN(?P<aa1>[A-Z])\\b', s)
+    if m:
+        aa1 = m.group("aa1")
+        return aa1 if aa1 in DAYHOFF_1SET else None
+
+    # 6) Token de 3 letras em qualquer lugar
+    m = re.search(r'(ALA|ARG|ASN|ASP|CYS|GLN|GLU|GLY|HIS|ILE|LEU|LYS|MET|PHE|PRO|SER|THR|TRP|TYR|VAL|SEC|PYL)', s)
+    if m:
+        aa3 = m.group(1)
+        return DAYHOFF_3TO1.get(aa3)
+
+    # 7) Nomes por extenso soltos
+    for full, aa3 in DAYHOFF_FULLNAME_TO3.items():
+        if full in s:
+            return DAYHOFF_3TO1.get(aa3)
+
+    return None
+
 def trna_label_one_letter(name: str) -> str:
-    if "-" in name:
-        try: return name.split("-")[1][0].upper()
-        except Exception: return "t"
-    return "t"
+    """Retorna a letra Dayhoff/IUPAC do tRNA. Fallback: 't'."""
+    one = _extract_trna_dayhoff_letter(name)
+    return one if one else "t"
 
 def _normalize_gene_key(name: str) -> str:
     if not name: return ""
@@ -204,7 +278,7 @@ def _normalize_gene_key(name: str) -> str:
     if s in {"CYB","COB","CYTOCHROMEB","MTCYB","MT-CYB"}: return "CYTB"
     if s in {"ATPASE6","ATP6"}: return "ATP6"
     if s in {"ATPASE8","ATP8"}: return "ATP8"
-    m = re.match(r"^(NADH?|ND)(\d)(L?)$", s)
+    m = re.match(r"^(NADH?|ND)(\\d)(L?)$", s)
     if m:
         base = "ND" + m.group(2)
         if m.group(3) == "L": base += "L"
@@ -440,7 +514,6 @@ def _plot_normpos(df: pd.DataFrame):
     pivot = sub.pivot(index="Record", columns="GeneNorm", values="mid_norm")
     records = list(pivot.index); n = len(records)
 
-    # Build pretty labels (Species + Accession) like in presence heatmap
     if {'Species','Accession'}.issubset(df.columns):
         meta = df.groupby('Record')[['Species','Accession']].first()
         labels = [f"{meta.loc[r,'Species']} ({meta.loc[r,'Accession']})" if r in meta.index else r for r in records]
@@ -521,7 +594,7 @@ def run_mtmap_from_many(list_bytes: list, list_names: list, anchor_gene: str | N
         zf.writestr('mtmap_annotations.csv', ann_csv)
         zf.writestr('mtmap_presence.csv', presence_csv)
         zf.writestr('mtmap_normposdist.csv', normpos_csv)
-        if warns: zf.writestr('warnings.txt', '\n'.join(warns))
+        if warns: zf.writestr('warnings.txt', '\\n'.join(warns))
         zf.writestr('diagnostics.csv', diagnostics_csv)
     zip_b64 = base64.b64encode(zip_buf.getvalue()).decode('ascii')
 
@@ -579,7 +652,10 @@ assert hasattr(mtmap, 'run_mtmap_from_many')
         pyodide.globals.set('NAME_LIST', nameList);
         pyodide.globals.set('ANCHOR', anchor || null);
         log('Processing (parse GenBank, maps, heatmaps, CSVs, SVGs)...');
-        const result = await pyodide.runPythonAsync(`import mtmap\nmtmap.run_mtmap_from_many(GB_LIST, NAME_LIST, ANCHOR)`);
+
+        // <-- LINHA CORRIGIDA (duas linhas reais de Python; sem "\\n" literal)
+        const result = await pyodide.runPythonAsync(`import mtmap
+mtmap.run_mtmap_from_many(GB_LIST, NAME_LIST, ANCHOR)`);
 
         const mapPNG   = result.get('img_map_png');
         const presPNG  = result.get('img_presence_png');
@@ -709,6 +785,19 @@ FEATURES             Location/Qualifiers
 ORIGIN
 //`;
 
+    const GBK_TGLU_GLN = `LOCUS       MTTEST6                 1000 bp    DNA     circular PLN 01-JAN-2000
+DEFINITION  tRNAs with non-trivial Dayhoff letters.
+ACCESSION   MTTEST6
+FEATURES             Location/Qualifiers
+     source          1..1000
+                     /organism="Test Dayhoff"
+     tRNA            50..70
+                     /gene="tRNA-Gln"
+     tRNA            120..140
+                     /gene="tRNA-Glu"
+ORIGIN
+//`;
+
     async function runTest(files, anchor=null) {
       await ensurePyodide();
       const names = files.map((f,i) => f.name || `test${i}.gbk`);
@@ -717,7 +806,8 @@ ORIGIN
       pyodide.globals.set('NAME_LIST', names);
       pyodide.globals.set('ANCHOR', anchor);
       log('Running self-test...');
-      const result = await pyodide.runPythonAsync(`import mtmap\nmtmap.run_mtmap_from_many(GB_LIST, NAME_LIST, ANCHOR)`);
+      const result = await pyodide.runPythonAsync(`import mtmap
+mtmap.run_mtmap_from_many(GB_LIST, NAME_LIST, ANCHOR)`);
       const mapPNG   = result.get('img_map_png');
       const presPNG  = result.get('img_presence_png');
       const normPNG  = result.get('img_normpos_png');
@@ -783,6 +873,9 @@ ORIGIN
     });
     document.getElementById('btnTest8').addEventListener('click', () => {
       runTest([{name:'fixture_rnr.gbk', text: GBK_RNR}], 'ND4L');
+    });
+    document.getElementById('btnTest9').addEventListener('click', () => {
+      runTest([{name:'fixture_glu_gln.gbk', text: GBK_TGLU_GLN}], 'Q');
     });
   </script>
   <footer style="margin-top:40px; padding-top:12px; border-top:1px solid #ddd; color:#555; font-size:14px; text-align:center;">

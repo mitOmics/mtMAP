@@ -1,3 +1,5 @@
+![Mitochondrion](img/mitochondria.png)
+
 # MTMap — Mitochondrial Genome Mapper (`mtmap.py`)
 
 ## Overview  

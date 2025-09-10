@@ -2,9 +2,9 @@
 # -*- coding: utf-8 -*-
 """
 mtmap_plus_refactored.py — Mitochondrial Map (refactor)
-- Centraliza normalização de genes (normalize_gene)
-- Heatmap de presença (CDS/rRNA) com sinônimos aplicados
-- Heatmap de distância por posição normalizada (CDS/rRNA)
+- Centralizes gene-name normalization (normalize_gene)
+- Presence heatmap (CDS/rRNA) with synonyms applied
+- Normalized-position distance heatmap (CDS/rRNA)
 """
 from pathlib import Path
 import argparse
@@ -56,7 +56,7 @@ def trna_label_one_letter(name: str) -> str:
     return "t"
 
 # -----------------------------
-# Normalização centralizada
+# Centralized normalization
 def normalize_gene(name: str) -> str:
     import re as _re
     if not name:
@@ -111,7 +111,7 @@ def list_gb_paths(input_path: Path):
     raise FileNotFoundError(f"Caminho não encontrado: {input_path}")
 
 # -----------------------------
-# Parsing de GenBank
+# GenBank parsing
 def extract_annotations_any(input_path: Path) -> pd.DataFrame:
     rows = []
     species_map = {}
@@ -163,7 +163,7 @@ def realign_to_anchor(df: pd.DataFrame, anchor: str) -> pd.DataFrame:
     for rec_id, sub in df.groupby("Record"):
         s = sub.copy()
         L = int(s["GenomeLen"].iloc[0])
-        # procurar o gene âncora centralizado (midpoint) entre CDS/rRNA/tRNA normalizados
+        # search for the anchor gene midpoint among normalized CDS/rRNA/tRNA
         ss = s.copy()
         ss["GeneNorm"] = ss["Name"].apply(normalize_gene)
         hit = ss[ss["GeneNorm"] == anchor]
@@ -179,7 +179,7 @@ def realign_to_anchor(df: pd.DataFrame, anchor: str) -> pd.DataFrame:
     return pd.concat(out, ignore_index=True)
 
 # -----------------------------
-# Plot principal (mapa linear simples)
+# Main plot (simple linear map)
 def plot_all_annotations(df: pd.DataFrame, out_png: Path, out_svg: Path, out_pdf: Path):
     import matplotlib as mpl
     mpl.rcParams['svg.fonttype'] = 'none'
@@ -229,14 +229,14 @@ def plot_all_annotations(df: pd.DataFrame, out_png: Path, out_svg: Path, out_pdf
     plt.close(fig)
 
 # -----------------------------
-# Heatmap de presença (CDS/rRNA)
+# Presence heatmap (CDS/rRNA)
 def plot_presence_heatmap(df: pd.DataFrame, out_png: Path, out_svg: Path, out_pdf: Path, out_csv: Path):
     import matplotlib as mpl, numpy as np, matplotlib.colors as mcolors
     mpl.rcParams['svg.fonttype'] = 'none'
     genes = [g for g in TARGET_GENES]
     sub = df[df["Type"].isin(["CDS","rRNA"])].copy()
     if sub.empty:
-        raise ValueError("Sem CDS/rRNA para o heatmap de presença.")
+        raise ValueError("No CDS/rRNA for the presence heatmap.")
     syn = {
         "COI":"COX1","COXI":"COX1","MT-CO1":"COX1","CO1":"COX1",
         "COII":"COX2","COXII":"COX2","MT-CO2":"COX2","CO2":"COX2",
@@ -283,13 +283,13 @@ def plot_presence_heatmap(df: pd.DataFrame, out_png: Path, out_svg: Path, out_pd
     plt.close(fig)
 
 # -----------------------------
-# Heatmap de distância por posição normalizada
+# Normalized-position distance heatmap
 def plot_normpos_distance_heatmap(df: pd.DataFrame, out_png: Path, out_svg: Path, out_pdf: Path, out_csv: Path):
     import numpy as np
     import matplotlib.pyplot as plt
     sub = df[df["Type"].isin(["CDS","rRNA"])].copy()
     if sub.empty:
-        raise ValueError("Sem CDS/rRNA para o heatmap de distância por posição normalizada.")
+        raise ValueError("No CDS/rRNA for the normalized-position distance heatmap.")
     sub["mid_norm"] = ((sub["Start"] + sub["End"]) / 2.0) / sub["GenomeLen"]
     sub["GeneNorm"] = sub["Name"].apply(normalize_gene)
     sub = sub.sort_values(["Record","GeneNorm","Start"]).drop_duplicates(["Record","GeneNorm"], keep="first")
@@ -327,17 +327,17 @@ def export_tables(df: pd.DataFrame, out_prefix: Path):
 
 # -----------------------------
 def main():
-    ap = argparse.ArgumentParser(description="Gerar mapas e heatmaps a partir de GB/GBK.")
-    ap.add_argument("input", type=str, help="Arquivo .gb/.gbk (multi-entry) OU diretório com GB/GBK.")
-    ap.add_argument("--out-prefix", type=str, default="mtmap_out", help="Prefixo dos arquivos de saída.")
+    ap = argparse.ArgumentParser(description="Generate maps and heatmaps from GB/GBK files.")
+    ap.add_argument("input", type=str, help="A .gb/.gbk file (multi-entry) OR a directory with GB/GBK files.")
+    ap.add_argument("--out-prefix", type=str, default="mtmap_out", help="Output file prefix.")
     ap.add_argument("--anchor-gene", type=str, default=None,
-                    help="Gene de ancoragem para linearizar o genoma circular (ex.: COX1, ND1, CYTB, 'F' para tRNA-Phe).")
+                    help="Anchor gene to linearize the circular genome (e.g., COX1, ND1, CYTB, 'F' for tRNA-Phe).")
     args = ap.parse_args()
     in_path = Path(args.input)
 
     df = extract_annotations_any(in_path)
     if df.empty:
-        raise SystemExit("Nenhuma anotação encontrada nos GB/GBK informados.")
+        raise SystemExit("No annotations found in the provided GB/GBK files.")
 
     if args.anchor_gene:
         df = realign_to_anchor(df, args.anchor_gene)
@@ -368,7 +368,7 @@ def main():
         out_prefix.with_name(out_prefix.name + "_normposdist.csv"),
     )
 
-    print("\nSaídas geradas:")
+    print("\nGenerated outputs:")
     outs = [
         "_map.png","_map.svg","_map.pdf",
         "_annotations.csv",
